@@ -6,6 +6,8 @@
 
 打包後為**單一 zip**，使用者電腦**不需要安裝 Python** 即可執行。
 
+![preview-1](assets/preview-1.png)
+
 ---
 
 ## 特色
