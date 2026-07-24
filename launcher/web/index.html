@@ -18,9 +18,14 @@
           <p>異環腳本整合面板</p>
         </div>
       </div>
-      <button id="refreshBtn" class="ghost-btn" title="重新掃描腳本">
-        <span class="refresh-icon">↻</span>
-      </button>
+      <div class="toolbar-actions">
+        <button id="refreshBtn" class="ghost-btn" title="重新掃描腳本">
+          <span class="refresh-icon">↻</span>
+        </button>
+        <button id="aboutBtn" class="ghost-btn" title="關於">
+          <span class="about-icon">ⓘ</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -67,6 +72,25 @@
       <button class="run-btn">啟動</button>
     </article>
   </template>
+
+  <!-- About 彈窗 -->
+  <div id="aboutOverlay" class="about-overlay">
+    <div class="about-card" role="dialog" aria-modal="true" aria-label="關於">
+      <button id="aboutClose" class="about-close" aria-label="關閉">✕</button>
+      <h2 class="about-title">NTE 自動化平台</h2>
+      <p class="about-version">v1.0.0</p>
+      <div class="about-rows">
+        <div class="about-row">
+          <span>作者</span>
+          <b>Hon.Lu</b>
+        </div>
+        <a id="aboutGithub" class="about-link" href="#">
+          GitHub · nte-platform <span class="ext">↗</span>
+        </a>
+      </div>
+      <p class="about-disclaimer">僅截取畫面並模擬鍵鼠，不修改遊戲檔案或記憶體，屬侵入性最低的做法。仍為第三方工具，請自行斟酌使用。</p>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

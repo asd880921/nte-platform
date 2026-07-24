@@ -18,6 +18,7 @@ import time
 import tempfile
 import threading
 import subprocess
+import webbrowser
 from collections import deque
 
 import webview
@@ -255,6 +256,14 @@ class Api:
     def refresh(self):
         self._load_scripts_if_new()
         return self.list_scripts()
+
+    def open_url(self, url):
+        """用系統預設瀏覽器開啟連結 (About 的 GitHub 連結)。"""
+        try:
+            webbrowser.open(url)
+            return True
+        except Exception:
+            return False
 
     # ---- 內部 ----
     def _load_scripts_if_new(self):

@@ -140,6 +140,32 @@
     setTimeout(poll, 400);
   }
 
+  // ---- About 彈窗 ----
+  const aboutBtn = document.getElementById("aboutBtn");
+  const aboutOverlay = document.getElementById("aboutOverlay");
+  const aboutClose = document.getElementById("aboutClose");
+  const aboutGithub = document.getElementById("aboutGithub");
+  const GITHUB_URL = "https://github.com/asd880921/nte-platform";
+
+  function openAbout() { aboutOverlay.classList.add("open"); }
+  function closeAbout() { aboutOverlay.classList.remove("open"); }
+
+  aboutBtn.addEventListener("click", openAbout);
+  aboutClose.addEventListener("click", closeAbout);
+  aboutOverlay.addEventListener("click", (e) => {
+    if (e.target === aboutOverlay) closeAbout(); // 點卡片外的遮罩關閉
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && aboutOverlay.classList.contains("open")) closeAbout();
+  });
+  aboutGithub.addEventListener("click", (e) => {
+    e.preventDefault();
+    // 用系統預設瀏覽器開啟，而非在 webview 內導航
+    if (window.pywebview && window.pywebview.api) {
+      window.pywebview.api.open_url(GITHUB_URL);
+    }
+  });
+
   // ---- 重新掃描 ----
   refreshBtn.addEventListener("click", async () => {
     refreshBtn.classList.remove("spin");
