@@ -54,8 +54,8 @@
         toggleRun(meta.id);
       });
 
-      // 點卡片本體 = 選取並看它的 console
-      node.addEventListener("click", () => selectScript(meta.id, true));
+      // 點卡片本體 = 只選取（不自動展開主控台，以免影響腳本列表畫面）
+      node.addEventListener("click", () => selectScript(meta.id, false));
 
       grid.appendChild(node);
       cards.set(meta.id, { el: node, meta, running: !!meta.running });
@@ -124,8 +124,13 @@
       const state = await window.pywebview.api.get_state();
       for (const [id, s] of Object.entries(state)) {
         if (cards.has(id) && cards.get(id).running !== s.running) {
+          const wasRunning = cards.get(id).running;
           applyRunningUI(id, s.running);
           if (id === activeId) updateDock();
+          // 腳本停止（執行中→停止）時，自動摺疊主控台
+          if (id === activeId && wasRunning && !s.running) {
+            dock.classList.add("collapsed");
+          }
         }
       }
       if (activeId && state[activeId]) {
