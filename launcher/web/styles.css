@@ -91,8 +91,11 @@ body {
   color: var(--text-1);
   font-size: 17px;
   cursor: pointer;
+  display: grid;
+  place-items: center;
   transition: transform 0.12s var(--spring), background 0.2s ease;
 }
+.ghost-btn svg { width: 17px; height: 17px; display: block; }
 .ghost-btn:hover { background: var(--glass-strong); }
 .ghost-btn:active { transform: scale(0.92); }
 .ghost-btn .refresh-icon { display: inline-block; }
@@ -335,7 +338,6 @@ body {
 
 /* ============ Toolbar actions / About ============ */
 .toolbar-actions { display: flex; align-items: center; gap: 8px; }
-.about-icon { display: inline-block; font-size: 16px; line-height: 1; }
 
 .about-overlay {
   position: fixed;
