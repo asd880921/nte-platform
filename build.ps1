@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $venv = Join-Path $root ".venv"
 $py = Join-Path $venv "Scripts\python.exe"
-$appOut = Join-Path $root "dist\NTE自動化平台"
-$zipOut = Join-Path $root "dist\NTE自動化平台.zip"
+$appOut = Join-Path $root "dist\NTE Platform"
+$zipOut = Join-Path $root "dist\NTE Platform.zip"
 
 Write-Host "==> 1/5 準備虛擬環境 .venv" -ForegroundColor Cyan
 if (-not (Test-Path $py)) {
@@ -20,7 +20,7 @@ Write-Host "==> 2/5 安裝相依套件 (requirements.txt)" -ForegroundColor Cyan
 
 Write-Host "==> 3/5 打包 (PyInstaller onedir)" -ForegroundColor Cyan
 # 先關掉可能佔用資料夾的舊 exe（僅比對本專案 dist 路徑，不影響其他程式）
-Get-Process | Where-Object { $_.Path -like "*\dist\NTE自動化平台\*" } |
+Get-Process | Where-Object { $_.Path -like "*\dist\NTE Platform\*" } |
     ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 500
 & $py -m PyInstaller --clean --noconfirm (Join-Path $root "nte_platform.spec")
@@ -38,4 +38,4 @@ $zsize = (Get-Item $zipOut).Length
 Write-Host ("完成:" ) -ForegroundColor Green
 Write-Host ("  資料夾 → {0}  ({1:N1} MB)" -f $appOut, ($size/1MB)) -ForegroundColor Green
 Write-Host ("  壓縮包 → {0}  ({1:N1} MB)" -f $zipOut, ($zsize/1MB)) -ForegroundColor Green
-Write-Host "把 zip 交給使用者，解壓後進資料夾雙擊 NTE自動化平台.exe 即可。"
+Write-Host "把 zip 交給使用者，解壓後進資料夾雙擊 NTE Platform.exe 即可。"

@@ -1,5 +1,7 @@
 # NTE 自動化平台
 
+**[⬇️ 點擊下載 (為 Github Release 最新版)](https://github.com/asd880921/nte-platform/releases/latest/download/NTE.Platform.zip)**
+
 異環（NTE / Neverness to Everness）遊戲腳本的**整合平台**。以一個 Apple 風格的桌面介面統一管理多支自動化腳本；每支腳本都是獨立資料夾，透過「讀取遊戲畫面 → 影像辨識找圖 → 定向操作」完成重複性任務。
 
 打包後為**單一 zip**，使用者電腦**不需要安裝 Python** 即可執行。
@@ -67,15 +69,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 產出：
 
-- `dist\NTE自動化平台\`　解壓後的資料夾（約 142 MB，最外層僅 `exe` + `_internal` + `scripts`）
-- `dist\NTE自動化平台.zip`　**交付物**（約 54 MB）
+- `dist\NTE Platform\`　解壓後的資料夾（約 142 MB，最外層僅 `exe` + `_internal` + `scripts`）
+- `dist\NTE Platform.zip`　**交付物**（約 54 MB）
 
 ---
 
 ## 交付與使用
 
-1. 把 `NTE自動化平台.zip` 給使用者。
-2. 使用者解壓 → 進資料夾雙擊 `NTE自動化平台.exe`（約 1 秒開啟，無黑窗）。
+1. 把 `NTE Platform.zip` 給使用者。
+2. 使用者解壓 → 進資料夾雙擊 `NTE Platform.exe`（約 1 秒開啟，無黑窗）。
 3. 在面板選腳本按「啟動」→ 切到遊戲前景 → 用腳本的熱鍵操作。
 4. **辨識異常時**：進 `scripts\<腳本>\template\` 替換對應 png（重新截自己畫面的圖），存檔後重按啟動。
 
