@@ -71,7 +71,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='NTE Platform',
+    name='NTE-Platform',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -94,5 +94,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='NTE Platform',
+    name='NTE-Platform',
 )
