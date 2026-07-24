@@ -1,6 +1,6 @@
 {
   "id": "manager_picks",
-  "name": "1-1 店長精選(安魂曲)",
+  "name": "1-1 店長精選 (安魂曲)",
   "description": "自動重複刷取店長精選商品，完成後回到列表繼續下一輪。",
   "emoji": "🍅",
   "entry": "main.py",
