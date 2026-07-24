@@ -1,0 +1,12 @@
+{
+  "id": "manager_picks",
+  "name": "1-1 店長精選",
+  "description": "自動重複刷取店長精選商品，完成後回到列表繼續下一輪。",
+  "emoji": "🍅",
+  "entry": "main.py",
+  "controls": [
+    { "key": "F1", "label": "開始循環" },
+    { "key": "F2", "label": "停止（回待機）" }
+  ],
+  "requires_foreground": true
+}

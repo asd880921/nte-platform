@@ -1,0 +1,18 @@
+# NTE 自動化平台 — 打包所需的精簡套件
+# 用法：python -m venv .venv ; .venv\Scripts\pip install -r requirements.txt
+
+# 影像辨識 (headless 版：無 GUI/contrib，體積小很多，找圖功能完整)
+# 釘 4.10：opencv 5.x 的 cv2 體積暴增到 ~112MB，4.10 只有 ~55MB
+opencv-python-headless==4.10.0.84
+numpy
+
+# 鍵盤 / 系統 / 視窗操作
+keyboard
+pywin32
+psutil
+
+# UI 介面 (WebView2 / pythonnet 會一併帶入)
+pywebview
+
+# 打包工具
+pyinstaller

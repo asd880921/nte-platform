@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 虛擬環境（用 requirements.txt 重建）
+.venv/
+
+# PyInstaller 產物
+build/
+dist/
+*.manifest
+
+# 建置 log / 暫存
+build_log.txt
+*.log
+scripts/**/_capture.png
+
+# OS / 編輯器
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

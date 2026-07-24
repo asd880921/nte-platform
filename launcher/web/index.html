@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NTE 自動化平台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"></div>
+
+  <header class="toolbar">
+    <div class="toolbar-inner">
+      <div class="brand">
+        <div class="brand-mark">N</div>
+        <div class="brand-text">
+          <h1>NTE 自動化平台</h1>
+          <p>異環腳本整合面板</p>
+        </div>
+      </div>
+      <button id="refreshBtn" class="ghost-btn" title="重新掃描腳本">
+        <span class="refresh-icon">↻</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="section-head">
+      <h2>腳本</h2>
+      <span id="scriptCount" class="count-pill">0</span>
+    </section>
+    <div id="grid" class="grid"></div>
+    <div id="empty" class="empty hidden">
+      <p>scripts 資料夾裡還沒有腳本</p>
+      <span>新增方式：在 scripts/ 底下開一個資料夾，放入 main.py、template/ 與 meta.json</span>
+    </div>
+  </main>
+
+  <!-- 底部 console dock -->
+  <div id="dock" class="dock collapsed">
+    <div class="dock-handle" id="dockHandle">
+      <div class="dock-title">
+        <span id="dockDot" class="dot"></span>
+        <span id="dockName">主控台</span>
+      </div>
+      <div class="dock-actions">
+        <button id="dockStop" class="pill-btn danger hidden">停止</button>
+        <span id="dockChevron" class="chevron">⌄</span>
+      </div>
+    </div>
+    <div class="dock-body">
+      <pre id="logView" class="log-view"></pre>
+    </div>
+  </div>
+
+  <!-- 卡片樣板 -->
+  <template id="cardTpl">
+    <article class="card" tabindex="0">
+      <div class="card-glow" aria-hidden="true"></div>
+      <div class="card-top">
+        <div class="emoji"></div>
+        <span class="status-badge">待機</span>
+      </div>
+      <h3 class="card-name"></h3>
+      <p class="card-desc"></p>
+      <div class="card-controls"></div>
+      <button class="run-btn">啟動</button>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
