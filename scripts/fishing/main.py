@@ -12,6 +12,9 @@
     - 按鍵：WM_KEYDOWN / WM_KEYUP 直接 PostMessage 給遊戲視窗，
             不動到系統游標與實體鍵盤狀態。
     - 遊戲可以被其他視窗蓋住，但**不能最小化** (最小化後截不到畫面)。
+    - 送按鍵前必須先宣告「視窗是作用中的」(見 ensure_active)，否則遊戲會忽略
+      釣魚的 F —— 這是後台能不能用的關鍵。
+      (實測：非作用中時移動鍵 W 與 ESC 收得到，但 F 完全沒反應。)
     - 比前台多一層介入 (直接對遊戲視窗送訊息)，不確定就用前台。
 
 讀畫面兩種模式都一樣：PrintWindow 截遊戲「視窗」畫面 (非整個螢幕)。
@@ -93,8 +96,14 @@ MINIGAME_ROI = {
     "bottom": 0.11,
 }
 MOVE_TOLERANCE = 3            # 黃條與綠條中心相差幾 px 內就算對準
-MOVE_TAP_MS = 65              # 每次左右微調按住的毫秒數
-KEY_DOWN_MS = 40              # 單次按鍵 (F/ESC) 按下→放開的毫秒數，太短遊戲那一幀可能收不到
+# 按壓時長。後台送的是視窗訊息，遊戲要在某個 frame 看到「這顆鍵是按下的」才算收到，
+# 所以單擊 (F / ESC) 按久一點當保險 —— 這兩顆鍵不需要精準，拉長沒有代價。
+# 拉桿的 A/D 剛好相反：按太久會衝過綠條，兩種模式都用 65ms
+# (實測後台用 150ms 平均偏移 35px，改 65ms 只剩 12px)。
+KEY_DOWN_MS = 200 if BACKGROUND else 40   # 單次按鍵 (F / ESC)
+MOVE_TAP_MS = 65              # 拉桿左右微調 (兩種模式同值)
+KEY_REPEAT_MS = 8             # 後台按住期間補送重複訊息，避免整段落在兩個 frame 之間
+ACTIVATE_EVERY = 1.0          # 後台每隔幾秒重新宣告一次「視窗是作用中的」(見 ensure_active)
 LOST_LIMIT = 20               # 連續幾次找不到條就判定小遊戲結束
 TRIGGER_TIMEOUT = 30          # 等咬竿提示的逾時 (秒)，逾時代表遊戲狀態卡住，走自動修正
 CLOSE_TIMEOUT = 20            # 等結算畫面的逾時 (秒)
@@ -246,9 +255,10 @@ def wait_until_restored(hwnd):
 def prepare_window(hwnd):
     """起跑前把視窗弄成該模式需要的狀態。"""
     if BACKGROUND:
-        wait_until_restored(hwnd)   # 後台只要求別最小化，蓋住沒關係
+        wait_until_restored(hwnd)      # 後台只要求別最小化，蓋住沒關係
+        ensure_active(hwnd, force=True)
     else:
-        bring_to_front(hwnd)        # 前台要在最上層才收得到按鍵
+        bring_to_front(hwnd)           # 前台要在最上層才收得到按鍵
 
 
 # ============ 截取視窗畫面 (整個視窗，原點=視窗左上角) ============
@@ -384,6 +394,11 @@ def wait_for_template(hwnd, name, timeout=None):
 # 兩種模式的差別全部集中在這一段，其餘流程共用。
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
+WM_ACTIVATE = 0x0006
+WM_SETFOCUS = 0x0007
+WM_ACTIVATEAPP = 0x001C
+WM_NCACTIVATE = 0x0086
+WA_ACTIVE = 1
 MAPVK_VK_TO_VSC = 0
 
 # 這支腳本用到的鍵 → 虛擬鍵碼 (後台送訊息要用)
@@ -395,20 +410,46 @@ VK_CODES = {
 }
 
 
-def _lparam(vk, down):
+def _lparam(vk, down, repeat=False):
     """
     組出 WM_KEYDOWN / WM_KEYUP 的 lParam：
       bit 0-15  重複次數 (1)
       bit 16-23 掃描碼 (用 MapVirtualKey 取，不寫死，換鍵盤配置也對)
-      bit 30    前一個狀態 (放開時要標成「原本是按下的」)
+      bit 30    前一個狀態 (放開、或按住期間的重複訊息要標成「原本是按下的」)
       bit 31    transition state (放開時為 1)
     少了後面兩個 bit，有些遊戲會把放開又當成一次按下。
     """
     scan = ctypes.windll.user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
     lp = 1 | (scan << 16)
+    if repeat or not down:
+        lp |= 1 << 30
     if not down:
-        lp |= (1 << 30) | (1 << 31)
+        lp |= 1 << 31
     return lp
+
+
+_last_activate = 0.0
+
+
+def ensure_active(hwnd, force=False):
+    """
+    後台模式的關鍵一步：宣告「這個視窗是作用中的」。
+
+    這遊戲 (Unreal) 對非作用中的視窗只處理一部分輸入 —— 實測移動鍵與 ESC 收得到，
+    但釣魚的 F 會被丟掉；補上這組訊息之後 F 才會生效。
+    送的只是視窗訊息，不會真的把系統焦點搶過去 (你正在用的程式不受影響)；
+    但使用者切換視窗時系統會送真正的 WM_ACTIVATE(0) 把遊戲的狀態改回去，
+    所以要定期補送，而不是開頭送一次就好。
+    """
+    global _last_activate
+    now = time.time()
+    if not force and now - _last_activate < ACTIVATE_EVERY:
+        return
+    _last_activate = now
+    for msg, wparam in ((WM_ACTIVATEAPP, 1), (WM_NCACTIVATE, 1),
+                        (WM_ACTIVATE, WA_ACTIVE), (WM_SETFOCUS, 0)):
+        win32api.PostMessage(hwnd, msg, wparam, 0)
+    time.sleep(0.05)   # 留一個 frame 讓遊戲套用狀態，再送按鍵
 
 
 def key_down(hwnd, key):
@@ -434,10 +475,24 @@ def press_key(hwnd, key, action):
 
 
 def tap_key(hwnd, key, ms):
-    """按住 key 指定毫秒再放開。"""
+    """
+    按住 key 指定毫秒再放開。
+    後台模式在按住期間持續補送重複的 WM_KEYDOWN：遊戲在背景更新得慢，
+    只送一次 down 有機會整段落在兩個 frame 之間被漏掉。
+    """
+    if BACKGROUND:
+        ensure_active(hwnd)     # 沒這一步，遊戲會忽略這顆鍵
     key_down(hwnd, key)
     try:
-        time.sleep(ms / 1000.0)
+        if BACKGROUND:
+            vk = VK_CODES[key]
+            lp = _lparam(vk, True, repeat=True)
+            end = time.time() + ms / 1000.0
+            while time.time() < end:
+                win32api.PostMessage(hwnd, WM_KEYDOWN, vk, lp)
+                time.sleep(KEY_REPEAT_MS / 1000.0)
+        else:
+            time.sleep(ms / 1000.0)
     finally:
         key_up(hwnd, key)
 
