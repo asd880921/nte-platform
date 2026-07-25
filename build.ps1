@@ -7,7 +7,11 @@ $root = $PSScriptRoot
 $venv = Join-Path $root ".venv"
 $py = Join-Path $venv "Scripts\python.exe"
 $appOut = Join-Path $root "dist\NTE-Platform"
+# 檔名固定不帶版本：README 的下載連結是 /releases/latest/download/NTE-Platform.zip，
+# 改檔名會讓那個連結失效
 $zipOut = Join-Path $root "dist\NTE-Platform.zip"
+$version = (Get-Content (Join-Path $root "VERSION") -Raw).Trim()
+Write-Host ("建置版本 v{0}" -f $version) -ForegroundColor Cyan
 
 # 關掉可能佔用交付資料夾的執行中 exe（僅比對本專案 dist 路徑，不影響其他程式）
 function Stop-BuiltExe {
@@ -55,7 +59,8 @@ if (-not $zipped) {
 
 $size = (Get-ChildItem $appOut -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $zsize = (Get-Item $zipOut).Length
-Write-Host ("完成:") -ForegroundColor Green
+Write-Host ("完成: v{0}" -f $version) -ForegroundColor Green
 Write-Host ("  資料夾 → {0}  ({1:N1} MB)" -f $appOut, ($size / 1MB)) -ForegroundColor Green
 Write-Host ("  壓縮包 → {0}  ({1:N1} MB)" -f $zipOut, ($zsize / 1MB)) -ForegroundColor Green
 Write-Host "把 zip 交給使用者，解壓後進資料夾雙擊 NTE-Platform.exe 即可。"
+Write-Host ("要正式發佈就推 tag：git tag v{0} ; git push origin v{0}  (GitHub Actions 會自動建 Release)" -f $version) -ForegroundColor DarkGray

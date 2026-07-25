@@ -73,6 +73,81 @@ INDEX = os.path.join(WEB_DIR, "index.html")
 CREATE_NO_WINDOW = 0x08000000
 LOG_MAX = 400
 
+GITHUB_REPO = "asd880921/nte-platform"
+RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
+LATEST_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+
+def _read_version():
+    """
+    版本號的唯一來源是根目錄的 VERSION 檔 (打包時被塞進 exe)。
+    前端不寫死版本，一律跟後端要，避免 exe 與 About 顯示不一致。
+    """
+    for base in (getattr(sys, "_MEIPASS", None), _base_dir()):
+        if not base:
+            continue
+        path = os.path.join(base, "VERSION")
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+    return "unknown"
+
+
+APP_VERSION = _read_version()
+
+
+def _parse_version(text):
+    """把 'v1.2.3' 這種字串轉成 (1, 2, 3) 方便比大小；非數字的片段當 0。"""
+    parts = []
+    for chunk in (text or "").strip().lstrip("vV").split(".")[:4]:
+        digits = ""
+        for ch in chunk:
+            if not ch.isdigit():
+                break
+            digits += ch
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) or (0,)
+
+
+class UpdateChecker:
+    """
+    背景查一次 GitHub 最新 release，有新版就讓前端顯示提示。
+    只讀不裝：使用者自己下載 zip 覆蓋 (執行中的 exe 沒辦法安全地覆蓋自己)。
+    查不到就安靜跳過 —— 離線、GitHub 掛掉都不該影響平台開啟。
+    """
+
+    def __init__(self):
+        self.result = {"checked": False, "available": False,
+                       "current": APP_VERSION, "latest": None, "url": RELEASES_PAGE}
+
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                LATEST_API,
+                headers={"User-Agent": f"NTE-Platform/{APP_VERSION}",
+                         "Accept": "application/vnd.github+json"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            latest = (data.get("tag_name") or "").strip()
+            if latest:
+                self.result["latest"] = latest.lstrip("vV")
+                self.result["url"] = data.get("html_url") or RELEASES_PAGE
+                self.result["available"] = (
+                    _parse_version(latest) > _parse_version(APP_VERSION)
+                )
+        except Exception:
+            pass       # 網路問題 / API 限流 / 沒有 release，都當作沒有新版
+        finally:
+            self.result["checked"] = True
+
 
 def run_script_entry(entry_path):
     """--run 模式：動態載入外置腳本的 main.py 並執行其 main()。"""
@@ -231,7 +306,17 @@ class Api:
 
     def __init__(self):
         self.runners = {}
+        self.updater = UpdateChecker()
+        self.updater.start()
         self._load_scripts()
+
+    # ---- 版本 / 更新 ----
+    def get_version(self):
+        return APP_VERSION
+
+    def get_update(self):
+        """前端啟動後問一次；checked 還是 false 表示背景還在查。"""
+        return dict(self.updater.result)
 
     def _load_scripts(self):
         self.runners.clear()

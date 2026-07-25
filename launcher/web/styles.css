@@ -457,6 +457,39 @@ body {
 /* ============ Toolbar actions / About ============ */
 .toolbar-actions { display: flex; align-items: center; gap: 8px; }
 
+/* 新版提示：只有真的有新版才出現，所以可以用一點顏色；
+   但它不是主要動作，做成膠囊而不是實心按鈕，不跟卡片的「啟動」搶注意力。 */
+.update-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 179, 64, 0.38);
+  background: rgba(255, 179, 64, 0.13);
+  color: #ffc46b;
+  font: inherit;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: transform 0.12s var(--spring), background 0.2s ease;
+}
+.update-pill:hover { background: rgba(255, 179, 64, 0.2); }
+.update-pill:active { transform: scale(0.94); }
+.update-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #ffb340;
+  flex: none;
+}
+
+.about-update {
+  display: inline-block;
+  margin: -12px 0 16px;
+  font-size: 12.5px; font-weight: 600;
+  color: #ffc46b;
+  text-decoration: none;
+}
+.about-update:hover { text-decoration: underline; }
+
 .about-overlay {
   position: fixed;
   inset: 0;

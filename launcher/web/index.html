@@ -19,6 +19,11 @@
         </div>
       </div>
       <div class="toolbar-actions">
+        <!-- 只有偵測到新版時才出現 -->
+        <button id="updateBtn" class="update-pill hidden" title="開啟下載頁">
+          <span class="update-dot" aria-hidden="true"></span>
+          <span id="updateText">新版</span>
+        </button>
         <button id="refreshBtn" class="ghost-btn" title="重新掃描腳本">
           <span class="refresh-icon">↻</span>
         </button>
@@ -95,7 +100,8 @@
     <div class="about-card" role="dialog" aria-modal="true" aria-label="關於">
       <button id="aboutClose" class="about-close" aria-label="關閉">✕</button>
       <h2 class="about-title">NTE 自動化平台</h2>
-      <p class="about-version">v1.0.0</p>
+      <p class="about-version" id="aboutVersion">—</p>
+      <a id="aboutUpdate" class="about-update hidden" href="#"></a>
       <div class="about-rows">
         <div class="about-row">
           <span>作者</span>

@@ -287,6 +287,52 @@
     }
   });
 
+  // ---- 版本與更新提示 ----
+  const updateBtn = document.getElementById("updateBtn");
+  const updateText = document.getElementById("updateText");
+  const aboutVersion = document.getElementById("aboutVersion");
+  const aboutUpdate = document.getElementById("aboutUpdate");
+  let releaseUrl = null;
+
+  async function loadVersion() {
+    try {
+      const v = await window.pywebview.api.get_version();
+      aboutVersion.textContent = v ? `v${v}` : "—";
+    } catch (_) {}
+  }
+
+  function showUpdate(info) {
+    releaseUrl = info.url;
+    updateText.textContent = `新版 v${info.latest}`;
+    updateBtn.classList.remove("hidden");
+    aboutUpdate.textContent = `有新版 v${info.latest}，點此開啟下載頁 ↗`;
+    aboutUpdate.classList.remove("hidden");
+  }
+
+  /** 後端是背景查的，這裡輪詢幾次就放棄（沒有新版是常態，不必吵） */
+  async function pollUpdate(tries = 12) {
+    try {
+      const info = await window.pywebview.api.get_update();
+      if (info && info.checked) {
+        if (info.available && info.latest) showUpdate(info);
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    if (tries > 0) setTimeout(() => pollUpdate(tries - 1), 1000);
+  }
+
+  function openRelease(e) {
+    e.preventDefault();
+    if (releaseUrl && window.pywebview && window.pywebview.api) {
+      window.pywebview.api.open_url(releaseUrl);
+    }
+  }
+
+  updateBtn.addEventListener("click", openRelease);
+  aboutUpdate.addEventListener("click", openRelease);
+
   // ---- 重新掃描 ----
   refreshBtn.addEventListener("click", async () => {
     refreshBtn.classList.remove("spin");
@@ -301,6 +347,8 @@
   whenReady().then(async () => {
     const list = await window.pywebview.api.list_scripts();
     renderScripts(list);
+    loadVersion();
+    pollUpdate();
     poll();
   });
 })();
