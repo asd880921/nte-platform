@@ -1,10 +1,22 @@
 """
 異環 (NTE) 自動釣魚腳本
 
-輸入方式：前景硬體輸入
-  - 讀畫面：直接截取 NTE 遊戲「視窗」畫面 (非整個螢幕)。
-  - 按鍵：用 keyboard 函式庫送掃描碼 (F / A / D / ESC)。
-  => 執行期間請保持 NTE 在前景，且不要手動搶動滑鼠鍵盤。
+支援兩種輸入模式，由平台在啟動時用環境變數 NTE_INPUT_MODE 指定
+(foreground / background；沒帶就是 foreground)：
+
+  前台 (foreground)  預設，最單純保險
+    - 按鍵：keyboard 函式庫送掃描碼給「目前的前景視窗」。
+    - 遊戲必須保持在最上層，執行期間請勿手動操作鍵盤滑鼠。
+
+  後台 (background)  可以邊做別的事
+    - 按鍵：WM_KEYDOWN / WM_KEYUP 直接 PostMessage 給遊戲視窗，
+            不動到系統游標與實體鍵盤狀態。
+    - 遊戲可以被其他視窗蓋住，但**不能最小化** (最小化後截不到畫面)。
+    - 比前台多一層介入 (直接對遊戲視窗送訊息)，不確定就用前台。
+
+讀畫面兩種模式都一樣：PrintWindow 截遊戲「視窗」畫面 (非整個螢幕)。
+釣魚全程只用鍵盤 (F 拋竿/起竿、A/D 拉桿、ESC 關結算)，所以才能做到後台；
+需要滑鼠點擊的腳本只能走前台 (這個遊戲吃不到訊息形式的滑鼠輸入)。
 
 遊戲循環 (見 run_loop)：
   0. 按下 F1 起跑時先按一次 F 開場拋竿 (不然不會進到釣魚狀態)；
@@ -27,6 +39,7 @@ import threading
 import cv2
 import numpy as np
 import keyboard
+import win32api
 import win32con
 import win32gui
 import win32ui
@@ -44,6 +57,11 @@ except Exception:
 # ---- 設定 ----
 WINDOW_TITLE = "NTE"
 PROCESS_NAME = "HTGame"
+# 輸入模式：平台啟動時用環境變數帶進來，單獨執行 main.py 時預設前台
+INPUT_MODE = os.environ.get("NTE_INPUT_MODE", "foreground").strip().lower()
+BACKGROUND = INPUT_MODE == "background"
+MODE_LABEL = "後台" if BACKGROUND else "前台"
+
 # template 圖片路徑：相對於本腳本所在資料夾 (打包後 scripts/ 外置於 exe 旁，使用者可自行替換圖片)
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
 MATCH_THRESHOLD = 0.80        # 預設樣板比對信心門檻
@@ -76,6 +94,7 @@ MINIGAME_ROI = {
 }
 MOVE_TOLERANCE = 3            # 黃條與綠條中心相差幾 px 內就算對準
 MOVE_TAP_MS = 65              # 每次左右微調按住的毫秒數
+KEY_DOWN_MS = 40              # 單次按鍵 (F/ESC) 按下→放開的毫秒數，太短遊戲那一幀可能收不到
 LOST_LIMIT = 20               # 連續幾次找不到條就判定小遊戲結束
 TRIGGER_TIMEOUT = 30          # 等咬竿提示的逾時 (秒)，逾時代表遊戲狀態卡住，走自動修正
 CLOSE_TIMEOUT = 20            # 等結算畫面的逾時 (秒)
@@ -156,6 +175,8 @@ def wait_for_start():
     _START.clear()
     _STOP_RUN.clear()
     log("\n[待機] 按 F1 開始自動釣魚；執行中按 F2 停止回待機。")
+    if BACKGROUND:
+        log("       (後台模式不用切到遊戲；但 F1/F2 是全域熱鍵，在其他程式按到也會生效)")
     while not _START.is_set():
         if _EXIT.is_set():
             raise KeyboardInterrupt()
@@ -194,13 +215,40 @@ def find_nte_window():
 
 
 def bring_to_front(hwnd):
-    """盡量把遊戲視窗切到前景。"""
+    """盡量把遊戲視窗切到前景 (只有前台模式需要)。"""
     try:
         if win32gui.IsIconic(hwnd):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         win32gui.SetForegroundWindow(hwnd)
     except Exception as e:
         log(f"[!] 切前景失敗(可忽略，只要遊戲本來就在前景)：{e}")
+
+
+def window_minimized(hwnd):
+    return bool(win32gui.IsIconic(hwnd))
+
+
+def wait_until_restored(hwnd):
+    """
+    最小化的視窗沒有內容可畫，PrintWindow 會截到空白。
+    這時停下來等使用者還原，而不是繼續空轉找圖 (後台模式唯一的視窗要求)。
+    """
+    if not window_minimized(hwnd):
+        return
+    how = "請還原視窗 (不用切到前景)" if BACKGROUND else "請還原視窗並切回遊戲"
+    log_step("!", f"遊戲視窗被最小化了，讀不到畫面 — {how}")
+    while window_minimized(hwnd):
+        check_stop()
+        time.sleep(0.5)
+    log_step("✓", "視窗已還原，繼續執行")
+
+
+def prepare_window(hwnd):
+    """起跑前把視窗弄成該模式需要的狀態。"""
+    if BACKGROUND:
+        wait_until_restored(hwnd)   # 後台只要求別最小化，蓋住沒關係
+    else:
+        bring_to_front(hwnd)        # 前台要在最上層才收得到按鍵
 
 
 # ============ 截取視窗畫面 (整個視窗，原點=視窗左上角) ============
@@ -313,6 +361,11 @@ def wait_for_template(hwnd, name, timeout=None):
     last_note = 0
     while True:
         check_stop()
+        if window_minimized(hwnd):
+            # 最小化的這段時間不算進逾時，還原後重新計時
+            wait_until_restored(hwnd)
+            start, last_note = time.time(), 0
+            continue
         img = capture_window(hwnd)
         cx, cy, conf = match_template(img, name)
         if conf >= threshold:
@@ -327,29 +380,75 @@ def wait_for_template(hwnd, name, timeout=None):
         time.sleep(POLL_INTERVAL)
 
 
-# ============ 前景硬體輸入 ============
-def press_key(key, action):
-    """用 keyboard 函式庫送掃描碼 (遊戲吃得到)；action 是這次按鍵在流程上的意義。"""
-    log_step("▸", f"{action} ({key.upper()})")
-    keyboard.press_and_release(key)
+# ============ 鍵盤輸入 (前台 / 後台兩種送法) ============
+# 兩種模式的差別全部集中在這一段，其餘流程共用。
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+MAPVK_VK_TO_VSC = 0
+
+# 這支腳本用到的鍵 → 虛擬鍵碼 (後台送訊息要用)
+VK_CODES = {
+    "f": 0x46,
+    "a": 0x41,
+    "d": 0x44,
+    "esc": 0x1B,
+}
 
 
-def tap_key(key, ms):
-    """按住 key 指定毫秒再放開 (拉桿微調用)。"""
-    keyboard.press(key)
-    try:
-        time.sleep(ms / 1000.0)
-    finally:
+def _lparam(vk, down):
+    """
+    組出 WM_KEYDOWN / WM_KEYUP 的 lParam：
+      bit 0-15  重複次數 (1)
+      bit 16-23 掃描碼 (用 MapVirtualKey 取，不寫死，換鍵盤配置也對)
+      bit 30    前一個狀態 (放開時要標成「原本是按下的」)
+      bit 31    transition state (放開時為 1)
+    少了後面兩個 bit，有些遊戲會把放開又當成一次按下。
+    """
+    scan = ctypes.windll.user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+    lp = 1 | (scan << 16)
+    if not down:
+        lp |= (1 << 30) | (1 << 31)
+    return lp
+
+
+def key_down(hwnd, key):
+    if BACKGROUND:
+        vk = VK_CODES[key]
+        win32api.PostMessage(hwnd, WM_KEYDOWN, vk, _lparam(vk, True))
+    else:
+        keyboard.press(key)
+
+
+def key_up(hwnd, key):
+    if BACKGROUND:
+        vk = VK_CODES[key]
+        win32api.PostMessage(hwnd, WM_KEYUP, vk, _lparam(vk, False))
+    else:
         keyboard.release(key)
 
 
+def press_key(hwnd, key, action):
+    """按一下就放 (F / ESC)；action 是這次按鍵在流程上的意義，會印進 log。"""
+    log_step("▸", f"{action} ({key.upper()})")
+    tap_key(hwnd, key, KEY_DOWN_MS)
+
+
+def tap_key(hwnd, key, ms):
+    """按住 key 指定毫秒再放開。"""
+    key_down(hwnd, key)
+    try:
+        time.sleep(ms / 1000.0)
+    finally:
+        key_up(hwnd, key)
+
+
 # ============ 拉桿小遊戲 ============
-def move_yellow_bar(yellow_x, target_x):
+def move_yellow_bar(hwnd, yellow_x, target_x):
     """把黃直條往綠橫條中心推一格。"""
     diff = target_x - yellow_x
     if abs(diff) <= MOVE_TOLERANCE:
         return  # 已經在目標位置附近
-    tap_key("d" if diff > 0 else "a", MOVE_TAP_MS)
+    tap_key(hwnd, "d" if diff > 0 else "a", MOVE_TAP_MS)
 
 
 def play_minigame(hwnd):
@@ -376,7 +475,7 @@ def play_minigame(hwnd):
                 else:
                     state = "往右追" if diff > 0 else "往左追"
                 log_detail(f"追蹤 {elapsed:4.1f}s   偏移 {diff:+4d}px   {state}")
-            move_yellow_bar(yellow_x, green_x)
+            move_yellow_bar(hwnd, yellow_x, green_x)
         else:
             lost += 1
             if lost >= LOST_LIMIT:
@@ -396,7 +495,7 @@ def wait_for_bite(hwnd):
     fixes = 0
     while True:
         if wait_for_template(hwnd, "trigger.png", timeout=TRIGGER_TIMEOUT):
-            press_key("f", "起竿")
+            press_key(hwnd, "f", "起竿")
             sleep_check(0.5)
             return fixes
         fixes += 1
@@ -410,21 +509,23 @@ def wait_for_close(hwnd, timeout_key=None):
     """等結算畫面 → delay 2s → 按 ESC 關閉；逾時則改按 timeout_key (可為 None)。"""
     if wait_for_template(hwnd, "close.png", timeout=CLOSE_TIMEOUT):
         sleep_check(2.0)
-        press_key("esc", "關閉結算")
+        press_key(hwnd, "esc", "關閉結算")
         sleep_check(0.5)
         return True
     log_detail(f"{CLOSE_TIMEOUT}s 沒等到結算畫面，直接往下走")
     if timeout_key:
-        press_key(timeout_key, "補送拋竿鍵")
+        press_key(hwnd, timeout_key, "補送拋竿鍵")
     return False
 
 
 def run_loop(hwnd):
     global _round, _elapsed
+    prepare_window(hwnd)
+
     # F1 起跑時先幫玩家拋一次竿，才會進到釣魚狀態；
     # 之後每輪結尾那個 F 有它自己的作用 (接著下一輪)，維持原樣不動。
     log("[起跑] 先幫你拋竿，接著進入循環")
-    press_key("f", "開場拋竿")
+    press_key(hwnd, "f", "開場拋竿")
     sleep_check(1.0)
 
     while True:
@@ -442,7 +543,7 @@ def run_loop(hwnd):
 
         # 4. delay 2s → 按 F 重新拋竿 → delay 1s
         sleep_check(2.0)
-        press_key("f", "重新拋竿")
+        press_key(hwnd, "f", "重新拋竿")
         sleep_check(1.0)
 
         used = time.time() - started
@@ -460,8 +561,12 @@ def main():
         log("[!] 找不到 NTE 視窗，請確認遊戲正在執行。")
         return
     log(f"[✓] 找到遊戲視窗 hwnd={hwnd}")
-    bring_to_front(hwnd)
-    time.sleep(0.3)
+    if BACKGROUND:
+        log("[模式] 後台：按鍵直送遊戲視窗，不搶你的鍵盤滑鼠")
+        log("       遊戲視窗可以被其他視窗蓋住，但請不要最小化 (會讀不到畫面)")
+    else:
+        log("[模式] 前台：按鍵送給最上層視窗")
+        log("       請保持遊戲在最上層，執行期間不要手動操作鍵盤滑鼠")
 
     watcher = threading.Thread(target=_key_watcher, daemon=True)
     watcher.start()
@@ -469,7 +574,6 @@ def main():
     try:
         while True:
             wait_for_start()      # 待機直到 F1
-            bring_to_front(hwnd)  # 起跑前確保遊戲在前景
             try:
                 run_loop(hwnd)
             except StopRun:

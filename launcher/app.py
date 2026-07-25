@@ -93,6 +93,24 @@ def run_script_entry(entry_path):
         mod.main()
 
 
+MODES = ("foreground", "background")
+MODE_LABEL = {"foreground": "前台", "background": "後台"}
+
+
+def normalize_meta(meta, folder_name):
+    """
+    補齊 meta.json 的預設值。
+    modes 是腳本支援的輸入模式清單，第一個是預設值；
+    只宣告 requires_foreground 的舊腳本也要能讀 (往回相容)。
+    """
+    meta.setdefault("id", folder_name)
+    modes = meta.get("modes")
+    if not isinstance(modes, list) or not modes:
+        modes = ["foreground"] if meta.get("requires_foreground", True) else ["background"]
+    meta["modes"] = [m for m in modes if m in MODES] or ["foreground"]
+    return meta
+
+
 class ScriptRunner:
     """管理單一腳本子行程的啟動 / 停止 / log 緩衝。"""
 
@@ -101,6 +119,7 @@ class ScriptRunner:
         self.folder = folder
         self.proc = None
         self.logfile = None
+        self.mode = meta["modes"][0]   # 這次(或上一次)執行用的輸入模式
         self.logs = deque(maxlen=LOG_MAX)
         self._lock = threading.Lock()
 
@@ -108,7 +127,7 @@ class ScriptRunner:
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self):
+    def start(self, mode=None):
         if self.running:
             return False, "腳本已在執行中"
         entry = self.meta.get("entry", "main.py")
@@ -116,8 +135,12 @@ class ScriptRunner:
         if not os.path.isfile(entry_path):
             return False, f"找不到入口檔：{entry}"
 
+        # 前端傳來的模式一律驗證過才用，不支援就退回該腳本的預設模式
+        self.mode = mode if mode in self.meta["modes"] else self.meta["modes"][0]
+
         self.logs.clear()
-        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1",
+                   NTE_INPUT_MODE=self.mode)
 
         if FROZEN:
             # 視窗程式 (console=False) 下子行程 stdout 不可靠，
@@ -151,7 +174,10 @@ class ScriptRunner:
             )
             threading.Thread(target=self._pump_pipe, daemon=True).start()
 
-        self._append("[啟動] 腳本已啟動，切到遊戲前景後按 F1 開始。")
+        if self.mode == "background":
+            self._append("[啟動] 腳本已啟動（後台模式）。遊戲不用切到前景，直接按 F1 開始。")
+        else:
+            self._append("[啟動] 腳本已啟動（前台模式）。切到遊戲前景後按 F1 開始。")
         return True, "已啟動"
 
     def stop(self):
@@ -222,8 +248,7 @@ class Api:
                     meta = json.load(f)
             except Exception:
                 continue
-            meta.setdefault("id", name)
-            found.append((meta, folder))
+            found.append((normalize_meta(meta, name), folder))
         # meta.json 的 order 決定卡片排序 (數字小的在前)；沒寫 order 的排最後，
         # 同名次則照資料夾名。新增腳本給一個比現有大的 order 就會排在後面。
         found.sort(key=lambda mf: (mf[0].get("order", 9999), os.path.basename(mf[1])))
@@ -234,16 +259,16 @@ class Api:
     def list_scripts(self):
         self._load_scripts_if_new()
         return [
-            {**r.meta, "running": r.running}
+            {**r.meta, "running": r.running, "mode": r.mode}
             for r in self.runners.values()
         ]
 
-    def start_script(self, script_id):
+    def start_script(self, script_id, mode=None):
         r = self.runners.get(script_id)
         if not r:
             return {"ok": False, "message": "找不到該腳本"}
-        ok, msg = r.start()
-        return {"ok": ok, "message": msg}
+        ok, msg = r.start(mode)
+        return {"ok": ok, "message": msg, "mode": r.mode}
 
     def stop_script(self, script_id):
         r = self.runners.get(script_id)
@@ -255,7 +280,7 @@ class Api:
     def get_state(self):
         """前端輪詢：回傳每個腳本的執行狀態與最新 log。"""
         return {
-            sid: {"running": r.running, "logs": r.snapshot_logs()}
+            sid: {"running": r.running, "mode": r.mode, "logs": r.snapshot_logs()}
             for sid, r in self.runners.items()
         }
 

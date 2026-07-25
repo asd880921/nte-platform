@@ -77,6 +77,14 @@
         <span class="mode-badge"></span>
       </div>
       <p class="card-desc"></p>
+      <!-- 支援兩種輸入模式的腳本才會顯示；單模式腳本只在標題旁顯示靜態徽章 -->
+      <div class="mode-picker hidden">
+        <span class="mode-picker-label">執行模式</span>
+        <div class="segmented" role="radiogroup" aria-label="執行模式">
+          <span class="seg-thumb" aria-hidden="true"></span>
+        </div>
+        <p class="mode-note"></p>
+      </div>
       <div class="card-controls"></div>
       <button class="run-btn">啟動</button>
     </article>

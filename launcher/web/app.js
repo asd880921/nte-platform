@@ -18,25 +18,27 @@
   const cards = new Map(); // id -> { el, meta, running }
   let activeId = null;
 
-  // ---- 前台 / 後台徽章 ----
-  // 資料來源是 meta.json 的 requires_foreground (布林)，不是描述文字裡的標記。
-  // 沒寫這個欄位的腳本一律視為前台 (平台預設就是前景硬體輸入)。
+  // ---- 執行模式 (前台 / 後台) ----
+  // 來源是 meta.json 的 modes 陣列 (後端已正規化，第一個為預設)。
+  // 同一支腳本兩種模式流程完全一樣，只差按鍵怎麼送進遊戲。
   const MODE = {
-    fg: {
+    foreground: {
       label: "前台",
-      hint: "遊戲視窗需保持在最上層；執行期間請勿操作鍵盤滑鼠",
-      // 螢幕圖示：這支腳本會佔用你的畫面與鍵鼠
+      short: "遊戲需在最上層，期間別碰鍵盤滑鼠。",
+      hint: "按鍵送給最上層視窗。請保持遊戲在最上層，執行期間不要操作鍵盤滑鼠。",
+      // 螢幕圖示：腳本佔用你的畫面與鍵鼠
       icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                <rect x="2.5" y="4" width="19" height="13" rx="2.5" />
                <path d="M9 20.5h6" />
              </svg>`,
     },
-    bg: {
+    background: {
       label: "後台",
-      hint: "遊戲視窗不可最小化，但可以被其他視窗蓋住；"
-          + "執行期間鍵盤滑鼠可自由使用，不影響腳本",
-      // 疊層圖示：這支腳本在後面跑，前面照你的意思用
+      short: "可邊做別的事；遊戲可被蓋住但別最小化。",
+      hint: "鍵盤訊息直接送給遊戲視窗，執行期間可自由使用電腦。"
+          + "遊戲視窗可以被其他視窗蓋住，但不能最小化；比前台多一層介入。",
+      // 疊層圖示：腳本在後面跑，前面照你的意思用
       icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                <path d="M7.5 6.5h11a2 2 0 0 1 2 2v11" opacity="0.55" />
@@ -45,11 +47,72 @@
     },
   };
 
-  function fillModeBadge(el, meta) {
-    const mode = meta.requires_foreground === false ? MODE.bg : MODE.fg;
-    el.classList.add(meta.requires_foreground === false ? "bg" : "fg");
-    el.innerHTML = `${mode.icon}<span>${mode.label}</span>`;
-    el.title = mode.hint;
+  const modeOf = (name) => MODE[name] || MODE.foreground;
+
+  // 使用者選過的模式記下來 (以腳本 id 為 key)；讀不到 localStorage 就用預設值
+  function savedMode(id) {
+    try { return localStorage.getItem(`nte.mode.${id}`); } catch (_) { return null; }
+  }
+  function saveMode(id, mode) {
+    try { localStorage.setItem(`nte.mode.${id}`, mode); } catch (_) {}
+  }
+
+  // 單模式腳本：標題旁一個靜態徽章
+  function fillModeBadge(el, modeName) {
+    const m = modeOf(modeName);
+    el.classList.add(modeName === "background" ? "bg" : "fg");
+    el.innerHTML = `${m.icon}<span>${m.label}</span>`;
+    el.title = m.hint;
+  }
+
+  // 雙模式腳本：分段控制項 + 一行說明
+  function buildModePicker(node, meta, id) {
+    const picker = node.querySelector(".mode-picker");
+    const seg = picker.querySelector(".segmented");
+    const note = picker.querySelector(".mode-note");
+    const modes = meta.modes;
+
+    picker.classList.remove("hidden");
+    seg.style.setProperty("--seg-count", modes.length);
+
+    modes.forEach((name) => {
+      const m = modeOf(name);
+      const btn = document.createElement("button");
+      btn.className = "seg";
+      btn.type = "button";
+      btn.dataset.mode = name;
+      btn.setAttribute("role", "radio");
+      btn.title = m.hint;
+      btn.innerHTML = `${m.icon}<span>${m.label}</span>`;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();          // 不要順便觸發卡片選取
+        const c = cards.get(id);
+        if (c && c.running) return;   // 執行中不能換模式
+        setMode(id, name);
+        saveMode(id, name);
+      });
+      seg.appendChild(btn);
+    });
+
+    // 起始值：使用者上次的選擇 → 否則腳本宣告的預設 (modes[0])
+    const initial = modes.includes(savedMode(id)) ? savedMode(id) : modes[0];
+    return { picker, seg, note, initial };
+  }
+
+  // 把某張卡片切到指定模式 (更新 thumb 位置、文字說明、aria 狀態)
+  function setMode(id, name) {
+    const c = cards.get(id);
+    if (!c || !c.picker) { if (c) c.mode = name; return; }
+    c.mode = name;
+    const { seg, note } = c.picker;
+    const idx = Math.max(0, c.meta.modes.indexOf(name));
+    seg.style.setProperty("--seg-index", idx);
+    seg.classList.toggle("on-background", name === "background");
+    seg.querySelectorAll(".seg").forEach((b) => {
+      b.setAttribute("aria-checked", String(b.dataset.mode === name));
+    });
+    note.textContent = modeOf(name).short;
+    note.title = modeOf(name).hint;
   }
 
   // ---- pywebview 就緒 ----
@@ -72,8 +135,18 @@
       node.style.animationDelay = `${i * 60}ms`;
       node.querySelector(".emoji").textContent = meta.emoji || "🎮";
       node.querySelector(".card-name").textContent = meta.name || meta.id;
-      fillModeBadge(node.querySelector(".mode-badge"), meta);
       node.querySelector(".card-desc").textContent = meta.description || "";
+
+      // 一支腳本只會有一種模式呈現方式：可選就給分段控制項，不可選就給靜態徽章
+      const modes = meta.modes && meta.modes.length ? meta.modes : ["foreground"];
+      let picker = null;
+      let mode = modes[0];
+      if (modes.length > 1) {
+        picker = buildModePicker(node, { ...meta, modes }, meta.id);
+        mode = picker.initial;
+      } else {
+        fillModeBadge(node.querySelector(".mode-badge"), modes[0]);
+      }
 
       const controls = node.querySelector(".card-controls");
       (meta.controls || []).forEach((c) => {
@@ -93,7 +166,10 @@
       node.addEventListener("click", () => selectScript(meta.id, false));
 
       grid.appendChild(node);
-      cards.set(meta.id, { el: node, meta, running: !!meta.running });
+      cards.set(meta.id, { el: node, meta: { ...meta, modes }, picker, mode,
+                           running: !!meta.running });
+      // 執行中的腳本要顯示它「實際在跑」的模式，而不是使用者上次選的
+      setMode(meta.id, meta.running && meta.mode ? meta.mode : mode);
       applyRunningUI(meta.id, !!meta.running);
     });
   }
@@ -105,6 +181,11 @@
     c.el.classList.toggle("running", running);
     c.el.querySelector(".status-badge").textContent = running ? "執行中" : "待機";
     c.el.querySelector(".run-btn").textContent = running ? "停止" : "啟動";
+    if (c.picker) {
+      // 執行中鎖住模式：這一輪已經用該模式啟動了，中途換沒有意義
+      c.picker.seg.classList.toggle("locked", running);
+      c.picker.seg.title = running ? "執行中無法切換模式，請先停止腳本" : "";
+    }
   }
 
   // ---- 選取 / dock ----
@@ -141,8 +222,9 @@
     if (c.running) {
       await window.pywebview.api.stop_script(id);
     } else {
-      const res = await window.pywebview.api.start_script(id);
+      const res = await window.pywebview.api.start_script(id, c.mode);
       if (res && res.ok) {
+        if (res.mode) setMode(id, res.mode);   // 後端驗證後的實際模式
         applyRunningUI(id, true);
         selectScript(id, true);
       }

@@ -9,5 +9,5 @@
     { "key": "F1", "label": "開始循環" },
     { "key": "F2", "label": "停止（回待機）" }
   ],
-  "requires_foreground": true
+  "modes": ["foreground"]
 }
