@@ -216,10 +216,43 @@ body {
   border-color: rgba(48, 209, 88, 0.35);
 }
 
+/* 標題列：名稱 + 前台/後台徽章。名稱長時徽章換行掉到下一行，不壓縮標題 */
+.card-head {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4px 7px;
+  margin-bottom: 5px;
+}
 .card-name {
   font-size: 17px; font-weight: 650;
-  letter-spacing: -0.01em;
-  margin-bottom: 5px;
+  letter-spacing: -0.01em;   /* 大字收緊字距 */
+}
+
+/* 前台 / 後台徽章
+   這是腳本的「固定屬性」，跟右上角的執行狀態 (待機/執行中) 是兩回事，
+   所以刻意做成 icon + 文字的小膠囊，跟狀態徽章區分開。
+   文字色比底色亮一階：在毛玻璃卡片上維持可讀性 (vibrancy)。 */
+.mode-badge {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.01em;    /* 小字微放字距 */
+  padding: 2.5px 8px 2.5px 6.5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: help;
+}
+.mode-badge svg { width: 11px; height: 11px; display: block; flex: none; }
+/* 前台：琥珀色，與「請設定解析度」提示同一套提醒語彙 */
+.mode-badge.fg {
+  color: #ffc46b;
+  background: rgba(255, 179, 64, 0.13);
+  border-color: rgba(255, 179, 64, 0.32);
+}
+/* 後台：青色，避開藍(選取/主按鈕)與綠(執行中) */
+.mode-badge.bg {
+  color: #93e2ff;
+  background: rgba(100, 210, 255, 0.13);
+  border-color: rgba(100, 210, 255, 0.32);
 }
 .card-desc {
   font-size: 13px; line-height: 1.5;
@@ -462,4 +495,23 @@ body {
     transition-duration: 0.15s !important;
   }
   .card { animation: none; }
+}
+
+/* 降低透明度：毛玻璃改成接近實心，模糊拿掉 */
+@media (prefers-reduced-transparency: reduce) {
+  .toolbar { background: #16161a; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .card { background: #1e1e23; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .dock { background: #16161a; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .about-card { background: #22222a; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .ambient { display: none; }
+  .mode-badge.fg { background: rgba(255, 179, 64, 0.22); }
+  .mode-badge.bg { background: rgba(100, 210, 255, 0.22); }
+}
+
+/* 高對比：邊框明確、色彩拉滿 */
+@media (prefers-contrast: more) {
+  .card { border-color: var(--hair-bright); }
+  .mode-badge { font-weight: 700; }
+  .mode-badge.fg { color: #ffd699; border-color: rgba(255, 179, 64, 0.7); }
+  .mode-badge.bg { color: #bfeeff; border-color: rgba(100, 210, 255, 0.7); }
 }

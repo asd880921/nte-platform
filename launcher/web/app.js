@@ -18,6 +18,40 @@
   const cards = new Map(); // id -> { el, meta, running }
   let activeId = null;
 
+  // ---- 前台 / 後台徽章 ----
+  // 資料來源是 meta.json 的 requires_foreground (布林)，不是描述文字裡的標記。
+  // 沒寫這個欄位的腳本一律視為前台 (平台預設就是前景硬體輸入)。
+  const MODE = {
+    fg: {
+      label: "前台",
+      hint: "遊戲視窗需保持在最上層；執行期間請勿操作鍵盤滑鼠",
+      // 螢幕圖示：這支腳本會佔用你的畫面與鍵鼠
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+               <rect x="2.5" y="4" width="19" height="13" rx="2.5" />
+               <path d="M9 20.5h6" />
+             </svg>`,
+    },
+    bg: {
+      label: "後台",
+      hint: "遊戲視窗不可最小化，但可以被其他視窗蓋住；"
+          + "執行期間鍵盤滑鼠可自由使用，不影響腳本",
+      // 疊層圖示：這支腳本在後面跑，前面照你的意思用
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+               <path d="M7.5 6.5h11a2 2 0 0 1 2 2v11" opacity="0.55" />
+               <rect x="3" y="3" width="13" height="13" rx="2.5" />
+             </svg>`,
+    },
+  };
+
+  function fillModeBadge(el, meta) {
+    const mode = meta.requires_foreground === false ? MODE.bg : MODE.fg;
+    el.classList.add(meta.requires_foreground === false ? "bg" : "fg");
+    el.innerHTML = `${mode.icon}<span>${mode.label}</span>`;
+    el.title = mode.hint;
+  }
+
   // ---- pywebview 就緒 ----
   function whenReady() {
     return new Promise((resolve) => {
@@ -38,6 +72,7 @@
       node.style.animationDelay = `${i * 60}ms`;
       node.querySelector(".emoji").textContent = meta.emoji || "🎮";
       node.querySelector(".card-name").textContent = meta.name || meta.id;
+      fillModeBadge(node.querySelector(".mode-badge"), meta);
       node.querySelector(".card-desc").textContent = meta.description || "";
 
       const controls = node.querySelector(".card-controls");

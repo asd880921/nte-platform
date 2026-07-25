@@ -1,7 +1,7 @@
 {
   "id": "manager_picks",
   "order": 1,
-  "name": "1-1 店長精選 [前台]",
+  "name": "1-1 店長精選",
   "description": "自動重複刷取店長精選關卡。目前僅支援使用「安魂曲」角色。",
   "emoji": "🍅",
   "entry": "main.py",
