@@ -249,10 +249,9 @@ class ScriptRunner:
             )
             threading.Thread(target=self._pump_pipe, daemon=True).start()
 
-        if self.mode == "background":
-            self._append("[啟動] 腳本已啟動（後台模式）。遊戲不用切到前景，直接按 F1 開始。")
-        else:
-            self._append("[啟動] 腳本已啟動（前台模式）。切到遊戲前景後按 F1 開始。")
+        # 怎麼按 F1、要不要切到遊戲，都由腳本的 [待機] 訊息負責交代，這裡不重複
+        label = "後台" if self.mode == "background" else "前台"
+        self._append(f"[啟動] 腳本已啟動（{label}模式），請稍候...")
         return True, "已啟動"
 
     def stop(self):

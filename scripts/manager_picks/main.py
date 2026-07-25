@@ -138,12 +138,52 @@ def find_nte_window():
     return result[0] if result else None
 
 
+def _force_foreground(hwnd):
+    """
+    把 hwnd 搶到前景，回傳是否成功。
+
+    Windows 只允許「擁有目前前景視窗」的執行緒指定新的前景視窗。腳本是獨立子行程，
+    按 F1 時前景是平台視窗 (屬於 launcher 行程)，直接呼叫 SetForegroundWindow 會被擋掉、
+    只閃一下工作列。這裡把自己的輸入佇列暫時附掛到前景視窗的執行緒上借到資格，用完卸掉；
+    附掛不成再退回 SwitchToThisWindow (不受前景權限限制)。
+    """
+    user32 = ctypes.windll.user32
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    if win32gui.GetForegroundWindow() == hwnd:
+        return True
+
+    fg = win32gui.GetForegroundWindow()
+    cur_tid = win32api.GetCurrentThreadId()
+    fg_tid = win32process.GetWindowThreadProcessId(fg)[0] if fg else 0
+    attached = bool(fg_tid and fg_tid != cur_tid
+                    and user32.AttachThreadInput(cur_tid, fg_tid, True))
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        win32gui.BringWindowToTop(hwnd)
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+        except Exception:
+            pass          # 被擋下就交給下面的退路，不算致命
+    finally:
+        if attached:
+            user32.AttachThreadInput(cur_tid, fg_tid, False)
+
+    if win32gui.GetForegroundWindow() != hwnd:
+        try:
+            user32.SwitchToThisWindow(hwnd, True)
+        except Exception:
+            pass
+
+    time.sleep(0.05)      # 前景切換不是同步完成的，給它一點時間再驗收
+    return win32gui.GetForegroundWindow() == hwnd
+
+
 def bring_to_front(hwnd):
     """盡量把遊戲視窗切到前景。"""
     try:
-        if win32gui.IsIconic(hwnd):
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        win32gui.SetForegroundWindow(hwnd)
+        if not _force_foreground(hwnd):
+            print("[!] 切不到遊戲前景，請手動點一下遊戲視窗；點完腳本會繼續。")
     except Exception as e:
         print(f"[!] 切前景失敗(可忽略，只要遊戲本來就在前景)：{e}")
 
@@ -306,8 +346,6 @@ def main():
         print("[!] 找不到 NTE 視窗，請確認遊戲正在執行。")
         return
     print(f"[✓] 找到遊戲視窗 hwnd={hwnd}")
-    bring_to_front(hwnd)
-    time.sleep(0.3)
 
     watcher = threading.Thread(target=_key_watcher, daemon=True)
     watcher.start()
