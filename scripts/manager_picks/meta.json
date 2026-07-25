@@ -1,8 +1,8 @@
 {
   "id": "manager_picks",
   "order": 1,
-  "name": "1-1 店長精選",
-  "description": "自動重複刷取店長精選關卡。目前僅支援使用「安魂曲」角色。",
+  "name": "1-1 店長精選 (安魂曲)",
+  "description": "請先進入店長精選畫面，選擇「1-1」章節後，再按 F1 啟動腳本。",
   "emoji": "🍅",
   "entry": "main.py",
   "controls": [
