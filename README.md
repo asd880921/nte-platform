@@ -1,16 +1,34 @@
-# NTE 自動化平台
+<div align="center">
+  <img src="assets/icon.ico" alt="icon"><br>
+  <h1>NTE 異環自動化腳本平台</h1>
+  <p> 一款基於圖像識別的「異環（NTE / Neverness to Everness）」腳本平台，支持前後台運行。</p>  
+  <p>
+    <a href="https://github.com/asd880921/nte-platform/releases/latest/download/NTE-Platform.zip">
+      <img src="https://shieldcn.dev/github/downloads-asset/asd880921/nte-platform/NTE-Platform.zip.svg?style=for-the-badge&label=installer%20downloads&labelColor=24292f&color=2ea44f" alt="Installer downloads" />
+    </a>
+  </p>
+  <p>
+    <img src="https://img.shields.io/github/v/release/asd880921/nte-platform?style=for-the-badge&label=latest%20release" alt="Latest release" />
+    <img src="https://img.shields.io/badge/license-AGPL--3.0-22C55E?style=for-the-badge" alt="License AGPL-3.0" />
+  </p>
+</div>
 
-**[⬇️ 點擊可直接下載](https://github.com/asd880921/nte-platform/releases/latest/download/NTE-Platform.zip)**
+## 安全性與免責聲明
 
-異環（NTE / Neverness to Everness）遊戲腳本的**整合平台**。把多支自動化腳本收在同一個桌面介面裡，一鍵啟動、一鍵停止，幫你處理遊戲中重複性的操作。
+> [!NOTE]
+> 本專案為免費、開源的第三方自動化工具，僅供技術研究與學習交流使用。
+>
+> 本工具僅透過畫面辨識及模擬鍵盤 / 滑鼠輸入與遊戲互動，不涉及修改遊戲檔案、讀寫遊戲記憶體、注入程式或竄改網路封包。
 
-**不需要安裝 Python**，下載解壓後雙擊就能用。
-
-![preview-1](assets/preview-1.png)
+> [!WARNING]
+> 使用本工具前，請先確認已了解遊戲官方對第三方工具的相關規範。
+>
+> 本專案無法保證使用本工具不會受到任何限制、偵測或帳號處分。所有因使用本工具所衍生的風險、帳號處分或其他損失，均由使用者自行承擔。
 
 ---
 
-## 特色
+## 平台介紹
+![preview-1](assets/preview-1.png)
 
 - **一站式整合**：所有腳本集中管理，一個介面即可啟動、停止與查看執行狀態。
 - **即時執行紀錄**：內建主控台，腳本執行流程與錯誤訊息一目了然。
@@ -107,7 +125,7 @@
 
 ## 更新提示
 
-程式開啟時會向 GitHub 查一次最新版本；有新版時**工具列會出現 🟠「新版 vX.Y.Z」**，點擊即開啟下載頁（About 視窗也會提示）。只讀取版本資訊，不會上傳任何資料。
+程式開啟時會向 GitHub 查一次最新版本；有新版時**工具列會出現 🟠「發現新版本 v1.0.0」**，點擊即開啟下載頁（About 視窗也會提示）。只讀取版本資訊，不會上傳任何資料。
 
 更新方式：
 
@@ -141,15 +159,6 @@
 **介面打不開 / 一片空白**  
 平台介面需要 Microsoft Edge **WebView2 Runtime**（Windows 10 / 11 通常已內建），若沒有請至微軟官網安裝後再重新開啟。
 
----
-
-## 安全性 / 免責說明
-
-本工具採用**侵入性最低**的自動化方式，運作原理單純：
-
-- ✅ 只做兩件事：**截取遊戲視窗畫面**做影像辨識、**模擬鍵盤/滑鼠**操作（等同真人操作）。
-- ❌ **不**讀寫遊戲記憶體、**不**修改任何遊戲檔案、**不**攔截或竄改網路封包、**不**注入遊戲程序。
-
-因此相較於修改器 / 記憶體外掛，這是風險相對低的一類做法。
-
-不過它仍屬**第三方自動化工具**，是否符合規範由遊戲官方條款認定，本專案無法保證絕對不會被偵測或處分。**請自行斟酌使用**。
+## 授權
+本專案採用 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) 授權，  
+允許個人與公司內部自由使用軟體，其餘詳細條款請參閱 LICENSE。
