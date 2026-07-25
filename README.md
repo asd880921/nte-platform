@@ -42,12 +42,12 @@
 </thead>
 <tbody>
 <tr>
-<td nowrap>🍅 1-1 店長精選 (安魂曲)</td>
+<td nowrap>1-1 店長精選 (安魂曲)</td>
 <td nowrap>⚪ 前台</td>
 <td>請先進入店長精選畫面，選擇「1-1」章節後，再按 <code>F1</code> 啟動。</td>
 </tr>
 <tr>
-<td nowrap>🎣 自動釣魚</td>
+<td nowrap>自動釣魚</td>
 <td nowrap>⚪ 前台 🟠 後台</td>
 <td>請先進入釣魚畫面按下「開始釣魚」後，再按 <code>F1</code> 啟動腳本。</td>
 </tr>
