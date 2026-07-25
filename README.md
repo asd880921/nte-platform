@@ -2,10 +2,8 @@
 
 **[⬇️ 點擊可直接下載](https://github.com/asd880921/nte-platform/releases/latest/download/NTE-Platform.zip)**
 
-異環（NTE / Neverness to Everness）遊戲腳本的**整合平台**。把多支自動化腳本收在同一個桌面介面裡，一鍵啟動、一鍵停止，幫你處理遊戲中重複性的操作。
-
-**不需要安裝 Python**，下載解壓後雙擊就能用。
-
+異環（NTE / Neverness to Everness）遊戲腳本的**整合平台**。把多支自動化腳本收在同一個桌面介面裡，  
+一鍵啟動、一鍵停止，幫你處理遊戲中重複性的操作。
 ![preview-1](assets/preview-1.png)
 
 ---
@@ -107,7 +105,7 @@
 
 ## 更新提示
 
-程式開啟時會向 GitHub 查一次最新版本；有新版時**工具列會出現 🟠「新版 vX.Y.Z」**，點擊即開啟下載頁（About 視窗也會提示）。只讀取版本資訊，不會上傳任何資料。
+程式開啟時會向 GitHub 查一次最新版本；有新版時**工具列會出現 🟠「發現新版本 vX.Y.Z」**，點擊即開啟下載頁（About 視窗也會提示）。只讀取版本資訊，不會上傳任何資料。
 
 更新方式：
 
