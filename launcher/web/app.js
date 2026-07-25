@@ -57,62 +57,69 @@
     try { localStorage.setItem(`nte.mode.${id}`, mode); } catch (_) {}
   }
 
-  // 單模式腳本：標題旁一個靜態徽章
-  function fillModeBadge(el, modeName) {
-    const m = modeOf(modeName);
-    el.classList.add(modeName === "background" ? "bg" : "fg");
-    el.innerHTML = `${m.icon}<span>${m.label}</span>`;
-    el.title = m.hint;
-  }
-
-  // 雙模式腳本：分段控制項 + 一行說明
-  function buildModePicker(node, meta, id) {
+  /**
+   * 每張卡片都有「執行模式」這一區，結構固定為 標籤 → 值 → 一行說明；
+   * 只有中間那段不同：能切換的給分段控制項，只支援一種模式的給靜態膠囊
+   * (膠囊看起來就是標籤，不會讓人想去點)。
+   */
+  function buildModeSection(node, modes, id) {
     const picker = node.querySelector(".mode-picker");
     const seg = picker.querySelector(".segmented");
+    const badge = picker.querySelector(".mode-badge");
     const note = picker.querySelector(".mode-note");
-    const modes = meta.modes;
+    const switchable = modes.length > 1;
 
-    picker.classList.remove("hidden");
-    seg.style.setProperty("--seg-count", modes.length);
-
-    modes.forEach((name) => {
-      const m = modeOf(name);
-      const btn = document.createElement("button");
-      btn.className = "seg";
-      btn.type = "button";
-      btn.dataset.mode = name;
-      btn.setAttribute("role", "radio");
-      btn.title = m.hint;
-      btn.innerHTML = `${m.icon}<span>${m.label}</span>`;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();          // 不要順便觸發卡片選取
-        const c = cards.get(id);
-        if (c && c.running) return;   // 執行中不能換模式
-        setMode(id, name);
-        saveMode(id, name);
+    if (switchable) {
+      badge.classList.add("hidden");
+      seg.style.setProperty("--seg-count", modes.length);
+      modes.forEach((name) => {
+        const m = modeOf(name);
+        const btn = document.createElement("button");
+        btn.className = "seg";
+        btn.type = "button";
+        btn.dataset.mode = name;
+        btn.setAttribute("role", "radio");
+        btn.title = m.hint;
+        btn.innerHTML = `${m.icon}<span>${m.label}</span>`;
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();          // 不要順便觸發卡片選取
+          const c = cards.get(id);
+          if (c && c.running) return;   // 執行中不能換模式
+          setMode(id, name);
+          saveMode(id, name);
+        });
+        seg.appendChild(btn);
       });
-      seg.appendChild(btn);
-    });
+    } else {
+      seg.classList.add("hidden");
+      const m = modeOf(modes[0]);
+      badge.classList.add(modes[0] === "background" ? "bg" : "fg");
+      badge.innerHTML = `${m.icon}<span>${m.label}</span>`;
+      badge.title = m.hint;
+    }
 
     // 起始值：使用者上次的選擇 → 否則腳本宣告的預設 (modes[0])
-    const initial = modes.includes(savedMode(id)) ? savedMode(id) : modes[0];
-    return { picker, seg, note, initial };
+    const saved = savedMode(id);
+    const initial = switchable && modes.includes(saved) ? saved : modes[0];
+    return { seg, badge, note, switchable, initial };
   }
 
-  // 把某張卡片切到指定模式 (更新 thumb 位置、文字說明、aria 狀態)
+  // 把某張卡片切到指定模式 (更新說明文字，能切換的再更新 thumb 位置與 aria 狀態)
   function setMode(id, name) {
     const c = cards.get(id);
-    if (!c || !c.picker) { if (c) c.mode = name; return; }
+    if (!c) return;
     c.mode = name;
-    const { seg, note } = c.picker;
+    const s = c.section;
+    if (!s) return;
+    s.note.textContent = modeOf(name).short;
+    s.note.title = modeOf(name).hint;
+    if (!s.switchable) return;
     const idx = Math.max(0, c.meta.modes.indexOf(name));
-    seg.style.setProperty("--seg-index", idx);
-    seg.classList.toggle("on-background", name === "background");
-    seg.querySelectorAll(".seg").forEach((b) => {
+    s.seg.style.setProperty("--seg-index", idx);
+    s.seg.classList.toggle("on-background", name === "background");
+    s.seg.querySelectorAll(".seg").forEach((b) => {
       b.setAttribute("aria-checked", String(b.dataset.mode === name));
     });
-    note.textContent = modeOf(name).short;
-    note.title = modeOf(name).hint;
   }
 
   // ---- pywebview 就緒 ----
@@ -137,16 +144,8 @@
       node.querySelector(".card-name").textContent = meta.name || meta.id;
       node.querySelector(".card-desc").textContent = meta.description || "";
 
-      // 一支腳本只會有一種模式呈現方式：可選就給分段控制項，不可選就給靜態徽章
       const modes = meta.modes && meta.modes.length ? meta.modes : ["foreground"];
-      let picker = null;
-      let mode = modes[0];
-      if (modes.length > 1) {
-        picker = buildModePicker(node, { ...meta, modes }, meta.id);
-        mode = picker.initial;
-      } else {
-        fillModeBadge(node.querySelector(".mode-badge"), modes[0]);
-      }
+      const section = buildModeSection(node, modes, meta.id);
 
       const controls = node.querySelector(".card-controls");
       (meta.controls || []).forEach((c) => {
@@ -166,10 +165,10 @@
       node.addEventListener("click", () => selectScript(meta.id, false));
 
       grid.appendChild(node);
-      cards.set(meta.id, { el: node, meta: { ...meta, modes }, picker, mode,
-                           running: !!meta.running });
+      cards.set(meta.id, { el: node, meta: { ...meta, modes }, section,
+                           mode: section.initial, running: !!meta.running });
       // 執行中的腳本要顯示它「實際在跑」的模式，而不是使用者上次選的
-      setMode(meta.id, meta.running && meta.mode ? meta.mode : mode);
+      setMode(meta.id, meta.running && meta.mode ? meta.mode : section.initial);
       applyRunningUI(meta.id, !!meta.running);
     });
   }
@@ -181,10 +180,10 @@
     c.el.classList.toggle("running", running);
     c.el.querySelector(".status-badge").textContent = running ? "執行中" : "待機";
     c.el.querySelector(".run-btn").textContent = running ? "停止" : "啟動";
-    if (c.picker) {
+    if (c.section && c.section.switchable) {
       // 執行中鎖住模式：這一輪已經用該模式啟動了，中途換沒有意義
-      c.picker.seg.classList.toggle("locked", running);
-      c.picker.seg.title = running ? "執行中無法切換模式，請先停止腳本" : "";
+      c.section.seg.classList.toggle("locked", running);
+      c.section.seg.title = running ? "執行中無法切換模式，請先停止腳本" : "";
     }
   }
 

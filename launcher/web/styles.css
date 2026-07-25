@@ -219,44 +219,45 @@ body {
   border-color: rgba(48, 209, 88, 0.35);
 }
 
-/* 標題列：名稱 + 前台/後台徽章。名稱長時徽章換行掉到下一行，不壓縮標題 */
-.card-head {
-  display: flex; align-items: center; flex-wrap: wrap;
-  gap: 4px 7px;
-  margin-bottom: 5px;
-}
 .card-name {
   font-size: 17px; font-weight: 650;
   letter-spacing: -0.01em;   /* 大字收緊字距 */
+  margin-bottom: 5px;
 }
 
-/* 執行模式徽章 (只支援一種模式的腳本用)
-   跟右上角的執行狀態 (待機/執行中) 是兩回事，所以做成 icon + 文字的小膠囊。
+/* ---- 執行模式區 ----
+   每張卡結構都一樣：標籤 → 值 → 一行說明，位置固定所以卡片之間可以直接對照。
+   中間那段能切換的用分段控制項，只支援一種模式的用靜態膠囊。 */
+.mode-picker { margin-bottom: 14px; }
+/* 讓「分段控制項」與「靜態膠囊」佔一樣的高度，兩張卡的說明文字才會對齊 */
+.mode-control {
+  display: flex; align-items: center;
+  min-height: 34px;
+}
+.mode-control .segmented { flex: 1; }
+
+/* 執行模式膠囊 (只支援一種模式時顯示)
+   刻意做成標籤的樣子而不是按鈕：不佔滿寬度、沒有底槽。
    前台是常態，用中性色不搶眼；顏色留給需要留意的後台。 */
 .mode-badge {
   flex: none;
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; font-weight: 600;
+  font-size: 11.5px; font-weight: 600;
   letter-spacing: 0.01em;    /* 小字微放字距 */
-  padding: 2.5px 8px 2.5px 6.5px;
+  padding: 4px 10px 4px 8px;
   border-radius: 999px;
   border: 1px solid var(--hair);
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.78);
   cursor: help;
 }
-.mode-badge svg { width: 11px; height: 11px; display: block; flex: none; }
-/* 有模式選擇器的卡片不會填徽章，空的就不要留一顆空膠囊 */
-.mode-badge:empty { display: none; }
+.mode-badge svg { width: 12px; height: 12px; display: block; flex: none; }
 /* 後台：琥珀色，跟「請設定解析度」同一套「請留意」語彙 */
 .mode-badge.bg {
   color: #ffc46b;
   background: rgba(255, 179, 64, 0.13);
   border-color: rgba(255, 179, 64, 0.32);
 }
-
-/* ---- 執行模式選擇 (兩種模式都支援的腳本) ---- */
-.mode-picker { margin-bottom: 14px; }
 .mode-picker-label {
   display: block;
   font-size: 11px; font-weight: 600;

@@ -72,16 +72,16 @@
         <div class="emoji"></div>
         <span class="status-badge">待機</span>
       </div>
-      <div class="card-head">
-        <h3 class="card-name"></h3>
-        <span class="mode-badge"></span>
-      </div>
+      <h3 class="card-name"></h3>
       <p class="card-desc"></p>
-      <!-- 支援兩種輸入模式的腳本才會顯示；單模式腳本只在標題旁顯示靜態徽章 -->
-      <div class="mode-picker hidden">
+      <!-- 每張卡都有這一區：可切換的顯示分段控制項，只支援一種模式的顯示靜態膠囊 -->
+      <div class="mode-picker">
         <span class="mode-picker-label">執行模式</span>
-        <div class="segmented" role="radiogroup" aria-label="執行模式">
-          <span class="seg-thumb" aria-hidden="true"></span>
+        <div class="mode-control">
+          <div class="segmented" role="radiogroup" aria-label="執行模式">
+            <span class="seg-thumb" aria-hidden="true"></span>
+          </div>
+          <span class="mode-badge"></span>
         </div>
         <p class="mode-note"></p>
       </div>
