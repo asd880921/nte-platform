@@ -1,8 +1,8 @@
 {
   "id": "fishing",
   "order": 2,
-  "name": "自動釣魚",
-  "description": "[前台] 自動循環釣魚",
+  "name": "自動釣魚 [前台]",
+  "description": "自動循環釣魚。請先進入釣魚畫面按下「開始釣魚」後，再按 F1 啟動腳本。",
   "emoji": "🎣",
   "entry": "main.py",
   "controls": [

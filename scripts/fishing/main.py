@@ -7,6 +7,8 @@
   => 執行期間請保持 NTE 在前景，且不要手動搶動滑鼠鍵盤。
 
 遊戲循環 (見 run_loop)：
+  0. 按下 F1 起跑時先按一次 F 開場拋竿 (不然不會進到釣魚狀態)；
+     每輪結尾那個 F 有它自己的作用，維持原樣
   1. 等到 trigger.png (咬竿提示) → 按 F 起竿
      等不到 (釣魚流程本身有變數，狀態會跟腳本對不上) → 跑一次「等 close.png」收尾
      (逾時就補按 F) 把狀態抵消掉讓循環接得下去，計一次自動修正，回到 1
@@ -419,6 +421,12 @@ def wait_for_close(hwnd, timeout_key=None):
 
 def run_loop(hwnd):
     global _round, _elapsed
+    # F1 起跑時先幫玩家拋一次竿，才會進到釣魚狀態；
+    # 之後每輪結尾那個 F 有它自己的作用 (接著下一輪)，維持原樣不動。
+    log("[起跑] 先幫你拋竿，接著進入循環")
+    press_key("f", "開場拋竿")
+    sleep_check(1.0)
+
     while True:
         log(f"\n── 第 {_round + 1} 輪 ──────────────────────")
         started = time.time()
