@@ -211,6 +211,7 @@ class Api:
         self.runners.clear()
         if not os.path.isdir(SCRIPTS_DIR):
             return
+        found = []
         for name in sorted(os.listdir(SCRIPTS_DIR)):
             folder = os.path.join(SCRIPTS_DIR, name)
             meta_path = os.path.join(folder, "meta.json")
@@ -222,6 +223,11 @@ class Api:
             except Exception:
                 continue
             meta.setdefault("id", name)
+            found.append((meta, folder))
+        # meta.json 的 order 決定卡片排序 (數字小的在前)；沒寫 order 的排最後，
+        # 同名次則照資料夾名。新增腳本給一個比現有大的 order 就會排在後面。
+        found.sort(key=lambda mf: (mf[0].get("order", 9999), os.path.basename(mf[1])))
+        for meta, folder in found:
             self.runners[meta["id"]] = ScriptRunner(meta, folder)
 
     # ---- 前端呼叫的方法 ----

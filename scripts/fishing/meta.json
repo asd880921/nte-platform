@@ -1,9 +1,9 @@
 {
-  "id": "manager_picks",
-  "order": 1,
-  "name": "1-1 店長精選 (安魂曲)",
-  "description": "[前台] 自動重複刷取店長精選關卡",
-  "emoji": "🍅",
+  "id": "fishing",
+  "order": 2,
+  "name": "自動釣魚",
+  "description": "[前台] 自動循環釣魚",
+  "emoji": "🎣",
   "entry": "main.py",
   "controls": [
     { "key": "F1", "label": "開始循環" },
