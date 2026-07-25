@@ -303,9 +303,11 @@
 
   function showUpdate(info) {
     releaseUrl = info.url;
-    updateText.textContent = `新版 v${info.latest}`;
+    // 講明是「發現的新版本」而非目前版本；about 內另有目前版本可對照
+    updateText.textContent = `發現新版本 v${info.latest}`;
+    updateBtn.title = `開啟 v${info.latest} 的下載頁`;
     updateBtn.classList.remove("hidden");
-    aboutUpdate.textContent = `有新版 v${info.latest}，點此開啟下載頁 ↗`;
+    aboutUpdate.textContent = `發現新版本 v${info.latest}，點此開啟下載頁 ↗`;
     aboutUpdate.classList.remove("hidden");
   }
 

@@ -480,6 +480,23 @@ body {
   background: #ffb340;
   flex: none;
 }
+/* 外連提示：這一下會離開 app 去瀏覽器，先講清楚 */
+.update-arrow { font-size: 11px; opacity: 0.7; margin-left: -1px; }
+
+/* 更新是背景查完才冒出來的，硬跳出來會嚇到人；從自己的位置長出來 */
+.update-pill:not(.hidden) {
+  transform-origin: 88% 50%;
+  /* backwards 而非 both：動畫結束後把 transform 還給 :active 的按壓回饋 */
+  animation: update-appear 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes update-appear {
+  from { opacity: 0; transform: scale(0.86); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-pill:not(.hidden) { animation: update-fade 0.2s ease backwards; }
+  @keyframes update-fade { from { opacity: 0; } to { opacity: 1; } }
+}
 
 .about-update {
   display: inline-block;
