@@ -161,7 +161,8 @@
 
 ### 平台無法開啟或畫面空白
 
-請確認已安裝 **Microsoft Edge WebView2 Runtime**（Windows 10 / 11 大多已內建），安裝完成後重新啟動平台即可。
+請確認已安裝 **[Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/zh-tw/microsoft-edge/webview2?form=MA13LH&cs=2799384256)**（Windows 10 / 11 大多已內建），  
+安裝完成後重新啟動平台即可。
 
 ---
 
