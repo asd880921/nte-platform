@@ -73,6 +73,81 @@ INDEX = os.path.join(WEB_DIR, "index.html")
 CREATE_NO_WINDOW = 0x08000000
 LOG_MAX = 400
 
+GITHUB_REPO = "asd880921/nte-platform"
+RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
+LATEST_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+
+def _read_version():
+    """
+    版本號的唯一來源是根目錄的 VERSION 檔 (打包時被塞進 exe)。
+    前端不寫死版本，一律跟後端要，避免 exe 與 About 顯示不一致。
+    """
+    for base in (getattr(sys, "_MEIPASS", None), _base_dir()):
+        if not base:
+            continue
+        path = os.path.join(base, "VERSION")
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+    return "unknown"
+
+
+APP_VERSION = _read_version()
+
+
+def _parse_version(text):
+    """把 'v1.2.3' 這種字串轉成 (1, 2, 3) 方便比大小；非數字的片段當 0。"""
+    parts = []
+    for chunk in (text or "").strip().lstrip("vV").split(".")[:4]:
+        digits = ""
+        for ch in chunk:
+            if not ch.isdigit():
+                break
+            digits += ch
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) or (0,)
+
+
+class UpdateChecker:
+    """
+    背景查一次 GitHub 最新 release，有新版就讓前端顯示提示。
+    只讀不裝：使用者自己下載 zip 覆蓋 (執行中的 exe 沒辦法安全地覆蓋自己)。
+    查不到就安靜跳過 —— 離線、GitHub 掛掉都不該影響平台開啟。
+    """
+
+    def __init__(self):
+        self.result = {"checked": False, "available": False,
+                       "current": APP_VERSION, "latest": None, "url": RELEASES_PAGE}
+
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                LATEST_API,
+                headers={"User-Agent": f"NTE-Platform/{APP_VERSION}",
+                         "Accept": "application/vnd.github+json"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            latest = (data.get("tag_name") or "").strip()
+            if latest:
+                self.result["latest"] = latest.lstrip("vV")
+                self.result["url"] = data.get("html_url") or RELEASES_PAGE
+                self.result["available"] = (
+                    _parse_version(latest) > _parse_version(APP_VERSION)
+                )
+        except Exception:
+            pass       # 網路問題 / API 限流 / 沒有 release，都當作沒有新版
+        finally:
+            self.result["checked"] = True
+
 
 def run_script_entry(entry_path):
     """--run 模式：動態載入外置腳本的 main.py 並執行其 main()。"""
@@ -93,6 +168,24 @@ def run_script_entry(entry_path):
         mod.main()
 
 
+MODES = ("foreground", "background")
+MODE_LABEL = {"foreground": "前台", "background": "後台"}
+
+
+def normalize_meta(meta, folder_name):
+    """
+    補齊 meta.json 的預設值。
+    modes 是腳本支援的輸入模式清單，第一個是預設值；
+    只宣告 requires_foreground 的舊腳本也要能讀 (往回相容)。
+    """
+    meta.setdefault("id", folder_name)
+    modes = meta.get("modes")
+    if not isinstance(modes, list) or not modes:
+        modes = ["foreground"] if meta.get("requires_foreground", True) else ["background"]
+    meta["modes"] = [m for m in modes if m in MODES] or ["foreground"]
+    return meta
+
+
 class ScriptRunner:
     """管理單一腳本子行程的啟動 / 停止 / log 緩衝。"""
 
@@ -101,6 +194,7 @@ class ScriptRunner:
         self.folder = folder
         self.proc = None
         self.logfile = None
+        self.mode = meta["modes"][0]   # 這次(或上一次)執行用的輸入模式
         self.logs = deque(maxlen=LOG_MAX)
         self._lock = threading.Lock()
 
@@ -108,7 +202,7 @@ class ScriptRunner:
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self):
+    def start(self, mode=None):
         if self.running:
             return False, "腳本已在執行中"
         entry = self.meta.get("entry", "main.py")
@@ -116,8 +210,12 @@ class ScriptRunner:
         if not os.path.isfile(entry_path):
             return False, f"找不到入口檔：{entry}"
 
+        # 前端傳來的模式一律驗證過才用，不支援就退回該腳本的預設模式
+        self.mode = mode if mode in self.meta["modes"] else self.meta["modes"][0]
+
         self.logs.clear()
-        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1",
+                   NTE_INPUT_MODE=self.mode)
 
         if FROZEN:
             # 視窗程式 (console=False) 下子行程 stdout 不可靠，
@@ -151,7 +249,10 @@ class ScriptRunner:
             )
             threading.Thread(target=self._pump_pipe, daemon=True).start()
 
-        self._append("[啟動] 腳本已啟動，切到遊戲前景後按 F1 開始。")
+        if self.mode == "background":
+            self._append("[啟動] 腳本已啟動（後台模式）。遊戲不用切到前景，直接按 F1 開始。")
+        else:
+            self._append("[啟動] 腳本已啟動（前台模式）。切到遊戲前景後按 F1 開始。")
         return True, "已啟動"
 
     def stop(self):
@@ -205,12 +306,23 @@ class Api:
 
     def __init__(self):
         self.runners = {}
+        self.updater = UpdateChecker()
+        self.updater.start()
         self._load_scripts()
+
+    # ---- 版本 / 更新 ----
+    def get_version(self):
+        return APP_VERSION
+
+    def get_update(self):
+        """前端啟動後問一次；checked 還是 false 表示背景還在查。"""
+        return dict(self.updater.result)
 
     def _load_scripts(self):
         self.runners.clear()
         if not os.path.isdir(SCRIPTS_DIR):
             return
+        found = []
         for name in sorted(os.listdir(SCRIPTS_DIR)):
             folder = os.path.join(SCRIPTS_DIR, name)
             meta_path = os.path.join(folder, "meta.json")
@@ -221,23 +333,27 @@ class Api:
                     meta = json.load(f)
             except Exception:
                 continue
-            meta.setdefault("id", name)
+            found.append((normalize_meta(meta, name), folder))
+        # meta.json 的 order 決定卡片排序 (數字小的在前)；沒寫 order 的排最後，
+        # 同名次則照資料夾名。新增腳本給一個比現有大的 order 就會排在後面。
+        found.sort(key=lambda mf: (mf[0].get("order", 9999), os.path.basename(mf[1])))
+        for meta, folder in found:
             self.runners[meta["id"]] = ScriptRunner(meta, folder)
 
     # ---- 前端呼叫的方法 ----
     def list_scripts(self):
         self._load_scripts_if_new()
         return [
-            {**r.meta, "running": r.running}
+            {**r.meta, "running": r.running, "mode": r.mode}
             for r in self.runners.values()
         ]
 
-    def start_script(self, script_id):
+    def start_script(self, script_id, mode=None):
         r = self.runners.get(script_id)
         if not r:
             return {"ok": False, "message": "找不到該腳本"}
-        ok, msg = r.start()
-        return {"ok": ok, "message": msg}
+        ok, msg = r.start(mode)
+        return {"ok": ok, "message": msg, "mode": r.mode}
 
     def stop_script(self, script_id):
         r = self.runners.get(script_id)
@@ -249,7 +365,7 @@ class Api:
     def get_state(self):
         """前端輪詢：回傳每個腳本的執行狀態與最新 log。"""
         return {
-            sid: {"running": r.running, "logs": r.snapshot_logs()}
+            sid: {"running": r.running, "mode": r.mode, "logs": r.snapshot_logs()}
             for sid, r in self.runners.items()
         }
 

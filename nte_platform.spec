@@ -9,6 +9,7 @@ block_cipher = None
 datas = [
     ('launcher/web', 'web'),       # 前端 Apple 風格介面
     ('scripts', 'scripts'),        # 內附預設 scripts/，首次執行時自動解壓到 exe 旁
+    ('VERSION', '.'),              # 版本號單一來源 (About 對話框與更新檢查都讀它)
 ]
 binaries = []
 

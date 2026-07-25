@@ -18,6 +18,110 @@
   const cards = new Map(); // id -> { el, meta, running }
   let activeId = null;
 
+  // ---- 執行模式 (前台 / 後台) ----
+  // 來源是 meta.json 的 modes 陣列 (後端已正規化，第一個為預設)。
+  // 同一支腳本兩種模式流程完全一樣，只差按鍵怎麼送進遊戲。
+  const MODE = {
+    foreground: {
+      label: "前台",
+      short: "遊戲需在最上層，期間別碰鍵盤滑鼠。",
+      hint: "按鍵送給最上層視窗。請保持遊戲在最上層，執行期間不要操作鍵盤滑鼠。",
+      // 螢幕圖示：腳本佔用你的畫面與鍵鼠
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+               <rect x="2.5" y="4" width="19" height="13" rx="2.5" />
+               <path d="M9 20.5h6" />
+             </svg>`,
+    },
+    background: {
+      label: "後台",
+      short: "可邊做別的事；遊戲可被蓋住但別最小化。",
+      hint: "鍵盤訊息直接送給遊戲視窗，執行期間可自由使用電腦。"
+          + "遊戲視窗可以被其他視窗蓋住，但不能最小化；比前台多一層介入。",
+      // 疊層圖示：腳本在後面跑，前面照你的意思用
+      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+               <path d="M7.5 6.5h11a2 2 0 0 1 2 2v11" opacity="0.55" />
+               <rect x="3" y="3" width="13" height="13" rx="2.5" />
+             </svg>`,
+    },
+  };
+
+  const modeOf = (name) => MODE[name] || MODE.foreground;
+
+  // 使用者選過的模式記下來 (以腳本 id 為 key)；讀不到 localStorage 就用預設值
+  function savedMode(id) {
+    try { return localStorage.getItem(`nte.mode.${id}`); } catch (_) { return null; }
+  }
+  function saveMode(id, mode) {
+    try { localStorage.setItem(`nte.mode.${id}`, mode); } catch (_) {}
+  }
+
+  /**
+   * 每張卡片都有「執行模式」這一區，結構固定為 標籤 → 值 → 一行說明；
+   * 只有中間那段不同：能切換的給分段控制項，只支援一種模式的給靜態膠囊
+   * (膠囊看起來就是標籤，不會讓人想去點)。
+   */
+  function buildModeSection(node, modes, id) {
+    const picker = node.querySelector(".mode-picker");
+    const seg = picker.querySelector(".segmented");
+    const badge = picker.querySelector(".mode-badge");
+    const note = picker.querySelector(".mode-note");
+    const switchable = modes.length > 1;
+
+    if (switchable) {
+      badge.classList.add("hidden");
+      seg.style.setProperty("--seg-count", modes.length);
+      modes.forEach((name) => {
+        const m = modeOf(name);
+        const btn = document.createElement("button");
+        btn.className = "seg";
+        btn.type = "button";
+        btn.dataset.mode = name;
+        btn.setAttribute("role", "radio");
+        btn.title = m.hint;
+        btn.innerHTML = `${m.icon}<span>${m.label}</span>`;
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();          // 不要順便觸發卡片選取
+          const c = cards.get(id);
+          if (c && c.running) return;   // 執行中不能換模式
+          setMode(id, name);
+          saveMode(id, name);
+        });
+        seg.appendChild(btn);
+      });
+    } else {
+      seg.classList.add("hidden");
+      const m = modeOf(modes[0]);
+      badge.classList.add(modes[0] === "background" ? "bg" : "fg");
+      badge.innerHTML = `${m.icon}<span>${m.label}</span>`;
+      badge.title = m.hint;
+    }
+
+    // 起始值：使用者上次的選擇 → 否則腳本宣告的預設 (modes[0])
+    const saved = savedMode(id);
+    const initial = switchable && modes.includes(saved) ? saved : modes[0];
+    return { seg, badge, note, switchable, initial };
+  }
+
+  // 把某張卡片切到指定模式 (更新說明文字，能切換的再更新 thumb 位置與 aria 狀態)
+  function setMode(id, name) {
+    const c = cards.get(id);
+    if (!c) return;
+    c.mode = name;
+    const s = c.section;
+    if (!s) return;
+    s.note.textContent = modeOf(name).short;
+    s.note.title = modeOf(name).hint;
+    if (!s.switchable) return;
+    const idx = Math.max(0, c.meta.modes.indexOf(name));
+    s.seg.style.setProperty("--seg-index", idx);
+    s.seg.classList.toggle("on-background", name === "background");
+    s.seg.querySelectorAll(".seg").forEach((b) => {
+      b.setAttribute("aria-checked", String(b.dataset.mode === name));
+    });
+  }
+
   // ---- pywebview 就緒 ----
   function whenReady() {
     return new Promise((resolve) => {
@@ -40,6 +144,9 @@
       node.querySelector(".card-name").textContent = meta.name || meta.id;
       node.querySelector(".card-desc").textContent = meta.description || "";
 
+      const modes = meta.modes && meta.modes.length ? meta.modes : ["foreground"];
+      const section = buildModeSection(node, modes, meta.id);
+
       const controls = node.querySelector(".card-controls");
       (meta.controls || []).forEach((c) => {
         const span = document.createElement("span");
@@ -58,7 +165,10 @@
       node.addEventListener("click", () => selectScript(meta.id, false));
 
       grid.appendChild(node);
-      cards.set(meta.id, { el: node, meta, running: !!meta.running });
+      cards.set(meta.id, { el: node, meta: { ...meta, modes }, section,
+                           mode: section.initial, running: !!meta.running });
+      // 執行中的腳本要顯示它「實際在跑」的模式，而不是使用者上次選的
+      setMode(meta.id, meta.running && meta.mode ? meta.mode : section.initial);
       applyRunningUI(meta.id, !!meta.running);
     });
   }
@@ -70,6 +180,11 @@
     c.el.classList.toggle("running", running);
     c.el.querySelector(".status-badge").textContent = running ? "執行中" : "待機";
     c.el.querySelector(".run-btn").textContent = running ? "停止" : "啟動";
+    if (c.section && c.section.switchable) {
+      // 執行中鎖住模式：這一輪已經用該模式啟動了，中途換沒有意義
+      c.section.seg.classList.toggle("locked", running);
+      c.section.seg.title = running ? "執行中無法切換模式，請先停止腳本" : "";
+    }
   }
 
   // ---- 選取 / dock ----
@@ -106,8 +221,9 @@
     if (c.running) {
       await window.pywebview.api.stop_script(id);
     } else {
-      const res = await window.pywebview.api.start_script(id);
+      const res = await window.pywebview.api.start_script(id, c.mode);
       if (res && res.ok) {
+        if (res.mode) setMode(id, res.mode);   // 後端驗證後的實際模式
         applyRunningUI(id, true);
         selectScript(id, true);
       }
@@ -171,6 +287,52 @@
     }
   });
 
+  // ---- 版本與更新提示 ----
+  const updateBtn = document.getElementById("updateBtn");
+  const updateText = document.getElementById("updateText");
+  const aboutVersion = document.getElementById("aboutVersion");
+  const aboutUpdate = document.getElementById("aboutUpdate");
+  let releaseUrl = null;
+
+  async function loadVersion() {
+    try {
+      const v = await window.pywebview.api.get_version();
+      aboutVersion.textContent = v ? `v${v}` : "—";
+    } catch (_) {}
+  }
+
+  function showUpdate(info) {
+    releaseUrl = info.url;
+    updateText.textContent = `新版 v${info.latest}`;
+    updateBtn.classList.remove("hidden");
+    aboutUpdate.textContent = `有新版 v${info.latest}，點此開啟下載頁 ↗`;
+    aboutUpdate.classList.remove("hidden");
+  }
+
+  /** 後端是背景查的，這裡輪詢幾次就放棄（沒有新版是常態，不必吵） */
+  async function pollUpdate(tries = 12) {
+    try {
+      const info = await window.pywebview.api.get_update();
+      if (info && info.checked) {
+        if (info.available && info.latest) showUpdate(info);
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    if (tries > 0) setTimeout(() => pollUpdate(tries - 1), 1000);
+  }
+
+  function openRelease(e) {
+    e.preventDefault();
+    if (releaseUrl && window.pywebview && window.pywebview.api) {
+      window.pywebview.api.open_url(releaseUrl);
+    }
+  }
+
+  updateBtn.addEventListener("click", openRelease);
+  aboutUpdate.addEventListener("click", openRelease);
+
   // ---- 重新掃描 ----
   refreshBtn.addEventListener("click", async () => {
     refreshBtn.classList.remove("spin");
@@ -185,6 +347,8 @@
   whenReady().then(async () => {
     const list = await window.pywebview.api.list_scripts();
     renderScripts(list);
+    loadVersion();
+    pollUpdate();
     poll();
   });
 })();
