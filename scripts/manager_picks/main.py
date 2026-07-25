@@ -100,6 +100,7 @@ def wait_for_start():
     _START.clear()
     _STOP_RUN.clear()
     print("\n[待機] 按 F1 開始遊戲循環；執行中按 F2 停止回待機。")
+    print("       按下 F1 後會自動切到遊戲視窗，期間請不要操作鍵盤滑鼠。")
     while not _START.is_set():
         if _EXIT.is_set():
             raise KeyboardInterrupt()

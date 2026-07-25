@@ -185,7 +185,9 @@ def wait_for_start():
     _STOP_RUN.clear()
     log("\n[待機] 按 F1 開始自動釣魚；執行中按 F2 停止回待機。")
     if BACKGROUND:
-        log("       (後台模式不用切到遊戲；但 F1/F2 是全域熱鍵，在其他程式按到也會生效)")
+        log("       (後台模式不用切到遊戲；但 F1/F2 是全域熱鍵，在其他程式按到也會生效，請注意。)")
+    else:
+        log("       按下 F1 後會自動切到遊戲視窗，期間請不要操作鍵盤滑鼠。")
     while not _START.is_set():
         if _EXIT.is_set():
             raise KeyboardInterrupt()
