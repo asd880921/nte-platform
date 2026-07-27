@@ -101,8 +101,7 @@ MOVE_TOLERANCE = 3            # 黃條與綠條中心相差幾 px 內就算對�
 KEY_DOWN_MS = 200 if BACKGROUND else 40   # 單次按鍵 (F / ESC)
 MOVE_TAP_MS = 65              # 拉桿左右微調 (兩種模式同值)
 KEY_REPEAT_MS = 40            # 後台 F 低頻補送重複訊息，避免整段落在兩個 frame 之間
-ACTIVATE_EVERY = 5.0          # F 前低頻補一次視窗 active 訊息
-ACTIVATE_KEYS = {"f"}         # 只有背景容易漏收的鍵才補 active
+ACTIVATE_KEYS = {"f"}         # F 在背景狀態下需要先補 active，其他鍵不需要
 REPEAT_KEYS = {"f"}           # A/D/ESC 改成單次 down/up，降低窗口訊息量
 LOST_LIMIT = 20               # 連續幾次找不到條就判定小遊戲結束
 TRIGGER_TIMEOUT = 30          # 等咬竿提示的逾時 (秒)，逾時代表遊戲狀態卡住，走自動修正
@@ -466,16 +465,8 @@ def _lparam(vk, down, repeat=False):
     return lp
 
 
-_last_activate = 0.0
-
-
 def ensure_active(hwnd):
-    """低頻宣告視窗 active，避免背景狀態下關鍵按鍵被遊戲忽略。"""
-    global _last_activate
-    now = time.time()
-    if now - _last_activate < ACTIVATE_EVERY:
-        return
-    _last_activate = now
+    """F 前宣告一次視窗 active，避免背景狀態下關鍵按鍵被遊戲忽略。"""
     win32api.PostMessage(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
     time.sleep(0.05)
 
