@@ -10,7 +10,7 @@
 遊戲循環 (見 run_loop)：
   1. 等到 start.png → 點擊
   2. delay 1s
-  3. 等到 tomato.png (不點) → 3-1 等到 prod0.png 點擊 → 3-2 delay 0.5s
+  3. 等到 tomato_small.png / tomato_big.png 任一出現 (不點) → 3-1 等到 prod0.png 點擊 → 3-2 delay 0.5s
      → 3-3 等到 prod1.png 點擊 → 計數器 +1 → delay 0.5s
      counter >= 2 → 按 ESC；否則回到步驟 3
   ESC 後：delay 1s → 等到 finish.png 點擊 → delay 1s
@@ -48,10 +48,13 @@ TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templat
 MATCH_THRESHOLD = 0.80        # 預設樣板比對信心門檻
 # 個別圖的門檻覆寫 (差異較大的圖可調低)
 THRESHOLDS = {
-    "tomato.png": 0.65,
+    "tomato_small.png": 0.75,
+    "tomato_big.png": 0.75,
 }
 POLL_INTERVAL = 0.25          # 每次讀畫面間隔 (秒)
 CLICK_DOWN_MS = 40            # 點擊按下→放開的毫秒數
+MOUSE_MOVE_MS = 80            # 點擊前用極短時間移到目標，避免瞬移後立刻按下
+CLICK_SETTLE_MS = 30          # 游標到位後短暫等待再按下
 PW_RENDERFULLCONTENT = 0x00000002
 
 MOUSEEVENTF_LEFTDOWN = 0x0002
@@ -275,6 +278,37 @@ def wait_for_template(hwnd, name, timeout=None):
         time.sleep(POLL_INTERVAL)
 
 
+def wait_for_any_template(hwnd, names, timeout=None):
+    """
+    持續截圖直到 names 任一圖片符合門檻。回傳 (name, cx, cy)。
+    timeout=None 表示無限等待；超時回傳 None。
+    """
+    print(f"    等待畫面出現 {' / '.join(names)} ...")
+    start = time.time()
+    last_note = 0
+    while True:
+        check_stop()
+        img = capture_window(hwnd)
+        best = None
+        for name in names:
+            cx, cy, conf = match_template(img, name)
+            if best is None or conf > best[3]:
+                best = (name, cx, cy, conf)
+            if conf >= _threshold_for(name):
+                print(f"    → 找到 {name} @({cx},{cy}) 信心 {conf:.3f}")
+                return name, cx, cy
+
+        elapsed = time.time() - start
+        if timeout is not None and elapsed > timeout:
+            print(f"    ! 等待 {' / '.join(names)} 逾時 ({timeout}s)")
+            return None
+        if elapsed - last_note >= 3:
+            last_note = elapsed
+            name, _, _, conf = best
+            print(f"    ...仍在等 {' / '.join(names)} ({elapsed:.0f}s，最高 {name} {conf:.3f})")
+        time.sleep(POLL_INTERVAL)
+
+
 # ============ 前景硬體輸入 ============
 def click_client(hwnd, cx, cy):
     """
@@ -283,12 +317,23 @@ def click_client(hwnd, cx, cy):
     """
     left, top, _, _ = win32gui.GetWindowRect(hwnd)
     sx, sy = left + cx, top + cy
-    win32api.SetCursorPos((sx, sy))
-    time.sleep(0.02)
+    move_cursor_to(sx, sy)
+    time.sleep(CLICK_SETTLE_MS / 1000.0)
     win32api.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
     time.sleep(CLICK_DOWN_MS / 1000.0)
     win32api.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
     print(f"    ★ 點擊 screen({sx},{sy})")
+
+
+def move_cursor_to(sx, sy):
+    x0, y0 = win32api.GetCursorPos()
+    steps = max(1, MOUSE_MOVE_MS // 10)
+    for i in range(1, steps + 1):
+        t = i / steps
+        x = round(x0 + (sx - x0) * t)
+        y = round(y0 + (sy - y0) * t)
+        win32api.SetCursorPos((x, y))
+        time.sleep(MOUSE_MOVE_MS / steps / 1000.0)
 
 
 def press_esc():
@@ -313,8 +358,8 @@ def run_loop(hwnd):
         # 3. 內層循環：counter 到 2 才結束
         counter = 0
         while True:
-            # 3. 等 tomato.png (不點)
-            wait_for_template(hwnd, "tomato.png")
+            # 3. 等番茄提示 (不點)
+            wait_for_any_template(hwnd, ("tomato_small.png", "tomato_big.png"))
 
             # 3-1. 等 prod0.png → 點擊
             click_client(hwnd, *wait_for_template(hwnd, "prod0.png"))
