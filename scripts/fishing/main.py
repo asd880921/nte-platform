@@ -12,9 +12,7 @@
     - 按鍵：WM_KEYDOWN / WM_KEYUP 直接 PostMessage 給遊戲視窗，
             不動到系統游標與實體鍵盤狀態。
     - 遊戲可以被其他視窗蓋住，但**不能最小化** (最小化後截不到畫面)。
-    - 送按鍵前必須先宣告「視窗是作用中的」(見 ensure_active)，否則遊戲會忽略
-      釣魚的 F —— 這是後台能不能用的關鍵。
-      (實測：非作用中時移動鍵 W 與 ESC 收得到，但 F 完全沒反應。)
+    - 極低訊息模式不額外宣告視窗 active，只送鍵盤訊息。
     - 比前台多一層介入 (直接對遊戲視窗送訊息)，不確定就用前台。
 
 讀畫面兩種模式都一樣：PrintWindow 截遊戲「視窗」畫面 (非整個螢幕)。
@@ -102,9 +100,10 @@ MOVE_TOLERANCE = 3            # 黃條與綠條中心相差幾 px 內就算對�
 # (實測後台用 150ms 平均偏移 35px，改 65ms 只剩 12px)。
 KEY_DOWN_MS = 200 if BACKGROUND else 40   # 單次按鍵 (F / ESC)
 MOVE_TAP_MS = 65              # 拉桿左右微調 (兩種模式同值)
-KEY_REPEAT_MS = 25            # 後台按住期間低頻補送重複訊息，避免整段落在兩個 frame 之間
-ACTIVATE_EVERY = 3.0          # 後台每隔幾秒低頻補一次 WM_ACTIVATE
-REPEAT_KEYS = {"f", "esc"}    # A/D 改成單次 down/up，降低拉桿期間的窗口訊息量
+KEY_REPEAT_MS = 40            # 後台 F 低頻補送重複訊息，避免整段落在兩個 frame 之間
+ACTIVATE_EVERY = 5.0          # F 前低頻補一次視窗 active 訊息
+ACTIVATE_KEYS = {"f"}         # 只有背景容易漏收的鍵才補 active
+REPEAT_KEYS = {"f"}           # A/D/ESC 改成單次 down/up，降低窗口訊息量
 LOST_LIMIT = 20               # 連續幾次找不到條就判定小遊戲結束
 TRIGGER_TIMEOUT = 30          # 等咬竿提示的逾時 (秒)，逾時代表遊戲狀態卡住，走自動修正
 CLOSE_TIMEOUT = 20            # 等結算畫面的逾時 (秒)
@@ -299,7 +298,6 @@ def prepare_window(hwnd):
     """起跑前把視窗弄成該模式需要的狀態。"""
     if BACKGROUND:
         wait_until_restored(hwnd)      # 後台只要求別最小化，蓋住沒關係
-        ensure_active(hwnd, force=True)
     else:
         bring_to_front(hwnd)           # 前台要在最上層才收得到按鍵
 
@@ -438,9 +436,6 @@ def wait_for_template(hwnd, name, timeout=None):
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_ACTIVATE = 0x0006
-WM_SETFOCUS = 0x0007
-WM_ACTIVATEAPP = 0x001C
-WM_NCACTIVATE = 0x0086
 WA_ACTIVE = 1
 MAPVK_VK_TO_VSC = 0
 
@@ -474,32 +469,15 @@ def _lparam(vk, down, repeat=False):
 _last_activate = 0.0
 
 
-def ensure_active(hwnd, force=False):
-    """
-    後台模式的關鍵一步：宣告「這個視窗是作用中的」。
-
-    這遊戲 (Unreal) 對非作用中的視窗只處理一部分輸入 —— 實測移動鍵與 ESC 收得到，
-    但釣魚的 F 會被丟掉；補上 activate 訊息之後 F 才會生效。
-    送的只是視窗訊息，不會真的把系統焦點搶過去 (你正在用的程式不受影響)；
-    但使用者切換視窗時系統會送真正的 WM_ACTIVATE(0) 把遊戲的狀態改回去，
-    所以要定期補送，而不是開頭送一次就好。
-
-    預設只送 WM_ACTIVATE，降低平常送出的窗口訊息種類。
-    完整 focus 訊息只保留給 force=True 的明確補強路徑，平常不固定週期送。
-    """
+def ensure_active(hwnd):
+    """低頻宣告視窗 active，避免背景狀態下關鍵按鍵被遊戲忽略。"""
     global _last_activate
     now = time.time()
-    if force or now - _last_activate >= ACTIVATE_EVERY:
-        _last_activate = now
-        win32api.PostMessage(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
-
-    if not force:
+    if now - _last_activate < ACTIVATE_EVERY:
         return
-
-    for msg, wparam in ((WM_ACTIVATEAPP, 1), (WM_NCACTIVATE, 1),
-                        (WM_SETFOCUS, 0)):
-        win32api.PostMessage(hwnd, msg, wparam, 0)
-    time.sleep(0.05)   # 留一個 frame 讓遊戲套用狀態，再送按鍵
+    _last_activate = now
+    win32api.PostMessage(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
+    time.sleep(0.05)
 
 
 def key_down(hwnd, key):
@@ -527,11 +505,11 @@ def press_key(hwnd, key, action):
 def tap_key(hwnd, key, ms):
     """
     按住 key 指定毫秒再放開。
-    F / ESC 保留低頻重複 WM_KEYDOWN，避免背景 frame 慢時漏掉關鍵按鍵。
-    A / D 拉桿改成單次 down/up，降低拉桿期間的窗口訊息量。
+    F 保留低頻重複 WM_KEYDOWN，避免背景 frame 慢時漏掉關鍵按鍵。
+    A / D / ESC 改成單次 down/up，降低窗口訊息量。
     """
-    if BACKGROUND:
-        ensure_active(hwnd)     # 沒這一步，遊戲會忽略這顆鍵
+    if BACKGROUND and key in ACTIVATE_KEYS:
+        ensure_active(hwnd)
     key_down(hwnd, key)
     try:
         if BACKGROUND and key in REPEAT_KEYS:
@@ -539,8 +517,10 @@ def tap_key(hwnd, key, ms):
             lp = _lparam(vk, True, repeat=True)
             end = time.time() + ms / 1000.0
             while time.time() < end:
-                win32api.PostMessage(hwnd, WM_KEYDOWN, vk, lp)
                 time.sleep(KEY_REPEAT_MS / 1000.0)
+                if time.time() >= end:
+                    break
+                win32api.PostMessage(hwnd, WM_KEYDOWN, vk, lp)
         else:
             time.sleep(ms / 1000.0)
     finally:
