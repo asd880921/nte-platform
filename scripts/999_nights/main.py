@@ -44,7 +44,7 @@ VK_F2 = 0x71
 POLL_INTERVAL = 0.12
 MOVE_STEP_SECONDS = 0.18
 CAMPFIRE_PROMPT_POLL_SECONDS = 0.015
-DODGE_SETTLE_SECONDS = 1.0
+DODGE_SETTLE_SECONDS = 0.7
 DODGE_DURATION_SECONDS = 60.0
 DODGE_W_LEAD_IN_SECONDS = 0.03
 DODGE_CHORD_SECONDS = 0.08
@@ -518,6 +518,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
     log_step("➜", f"{mode}至{label}")
     best_distance = float("inf")
     last_distance = None
+    last_target = None
     lost_count = 0
     last_status = 0.0
     walking = False
@@ -586,10 +587,14 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                     continue
 
                 release_w()
+                distance_to_last_target = (
+                    target_distance(pose, last_target)
+                    if last_target is not None
+                    else float("inf")
+                )
                 if (
                     target_name != "campfire"
-                    and last_distance is not None
-                    and last_distance <= ICON_OCCLUSION_DISTANCE
+                    and distance_to_last_target <= ICON_OCCLUSION_DISTANCE
                 ):
                     return finish_marker(f"已抵達{label}（圖示被角色遮住）")
                 if lost_count == TARGET_LOST_LIMIT:
@@ -619,6 +624,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
 
             best_distance = min(best_distance, distance)
             last_distance = distance
+            last_target = target
             heading_error = heading_error_to_target(pose, target)
             if abs(heading_error) > MOVE_ALIGNMENT_TOLERANCE:
                 release_w()

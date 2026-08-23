@@ -170,6 +170,48 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(reached)
         self.assertEqual(observe.call_count, 2)
 
+    def test_dodge_icon_occlusion_uses_current_arrow_against_last_icon_position(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (65.0, 0.0), 0.68),
+                ((65.0, 0.0, 0.0), None, 0.44),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "route_2", dodge=True)
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, 2)
+
+    def test_low_confidence_far_from_last_icon_does_not_count_as_arrival(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (65.0, 0.0), 0.68),
+                ((10.0, 0.0, 0.0), None, 0.44),
+                ((65.0, 0.0, 0.0), (65.0, 0.0), 0.68),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "route_2", dodge=True)
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, 3)
+
+    def test_dodge_interval_is_reduced_by_thirty_percent(self):
+        self.assertAlmostEqual(NIGHTS.DODGE_SETTLE_SECONDS, 0.7)
+
     def test_marker_arrival_advances_for_shared_crossing_duration(self):
         observations = iter(
             [
