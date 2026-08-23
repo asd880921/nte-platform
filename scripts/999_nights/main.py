@@ -38,8 +38,20 @@ PW_RENDERFULLCONTENT = 0x00000002
 MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
-VK_F1 = 0x70
-VK_F2 = 0x71
+FUNCTION_KEYS = tuple(f"F{i}" for i in range(1, 13))
+
+
+def _configured_function_key(name, default):
+    key = os.environ.get(name, default).strip().upper()
+    return key if key in FUNCTION_KEYS else default
+
+
+START_KEY = _configured_function_key("NTE_START_KEY", "F1")
+STOP_KEY = _configured_function_key("NTE_STOP_KEY", "F2")
+if STOP_KEY == START_KEY:
+    STOP_KEY = "F2" if START_KEY != "F2" else "F1"
+VK_START = 0x6F + int(START_KEY[1:])
+VK_STOP = 0x6F + int(STOP_KEY[1:])
 
 POLL_INTERVAL = 0.12
 MOVE_STEP_SECONDS = 0.18
@@ -107,7 +119,7 @@ _round = 0
 
 
 class StopRun(Exception):
-    """使用者按 F2，停止本輪並回到待機。"""
+    """使用者按下停止快捷鍵，停止本輪並回到待機。"""
 
 
 def log(text=""):
@@ -121,9 +133,9 @@ def log_step(mark, text):
 def _key_watcher():
     user32 = ctypes.windll.user32
     while not _EXIT.is_set():
-        if user32.GetAsyncKeyState(VK_F1) & 0x8000:
+        if user32.GetAsyncKeyState(VK_START) & 0x8000:
             _START.set()
-        if user32.GetAsyncKeyState(VK_F2) & 0x8000:
+        if user32.GetAsyncKeyState(VK_STOP) & 0x8000:
             _STOP_RUN.set()
         time.sleep(0.03)
 
@@ -146,7 +158,7 @@ def release_movement_keys():
 
 
 def hold_key_for(key, seconds):
-    """按住指定按鍵一段可被 F2 中止的時間，任何情況都保證放開。"""
+    """按住指定按鍵一段可被停止快捷鍵中止的時間，並保證放開。"""
     keyboard.press(key)
     try:
         sleep_check(seconds)
@@ -171,15 +183,21 @@ def perform_dodge():
 def wait_for_start():
     _START.clear()
     _STOP_RUN.clear()
-    log("\n[待機] 請先讓角色位於九百九十九夜副本內，再按 F1 開始循環。")
-    log("       執行中按 F2 可停止並回到待機；期間請勿操作鍵盤滑鼠。")
+    log(
+        "\n[待機] 請先讓角色位於九百九十九夜副本內，"
+        f"再按 {START_KEY} 開始循環。"
+    )
+    log(
+        f"       執行中按 {STOP_KEY} 可停止並回到待機；"
+        "期間請勿操作鍵盤滑鼠。"
+    )
     while not _START.is_set():
         if _EXIT.is_set():
             raise KeyboardInterrupt()
         time.sleep(0.05)
     _START.clear()
     _STOP_RUN.clear()
-    log("[F1] 開始執行")
+    log(f"[{START_KEY}] 開始執行")
 
 
 def _pid_process_name(pid):
@@ -840,11 +858,14 @@ def main():
                 run_loop(hwnd)
             except StopRun:
                 release_movement_keys()
-                log("[F2] 已停止並放開移動鍵，回到待機。")
+                log(f"[{STOP_KEY}] 已停止並放開移動鍵，回到待機。")
             except Exception as exc:
                 release_movement_keys()
                 log(f"[錯誤] {type(exc).__name__}: {exc}")
-                log("       已安全停止並回到待機，可修正狀態後再按 F1。")
+                log(
+                    "       已安全停止並回到待機，"
+                    f"可修正狀態後再按 {START_KEY}。"
+                )
     except KeyboardInterrupt:
         log("\n[中止] 關閉腳本。")
     finally:
