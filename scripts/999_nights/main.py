@@ -717,6 +717,7 @@ def rest_and_refresh(hwnd):
         navigate_to(hwnd, "campfire")
         prompt = wait_for_ui(hwnd, "press_f.png")
 
+    used_back_away_fallback = False
     while True:
         log_step("▸", "按 F 進入休息")
         tap_key("f", 0.5)
@@ -727,6 +728,7 @@ def rest_and_refresh(hwnd):
 
         log("    2 秒內未看到休息按鈕，後退並重新確認 F 提示")
         back_away_from_campfire()
+        used_back_away_fallback = True
         prompt = wait_for_ui(hwnd, "press_f.png", timeout=2.0)
         if prompt is None:
             log("    後退後仍未看到 F 提示，重新校正火堆位置")
@@ -737,10 +739,10 @@ def rest_and_refresh(hwnd):
     sleep_check(0.5)
     log_step("▸", "按 ESC 關閉休息畫面")
     tap_key("esc", 0.5)
-    back_away_from_campfire()
-    log_step("▸", "短按 W 恢復角色正面箭頭")
-    hold_key_for("w", TURN_PROBE_TAP_SECONDS)
-    sleep_check(TURN_SETTLE_SECONDS)
+    if used_back_away_fallback:
+        log_step("▸", "短按 W 恢復角色正面箭頭")
+        hold_key_for("w", TURN_PROBE_TAP_SECONDS)
+        sleep_check(TURN_SETTLE_SECONDS)
 
 
 def run_dodge_loop(hwnd):

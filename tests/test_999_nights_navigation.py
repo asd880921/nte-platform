@@ -284,7 +284,7 @@ class NavigationTests(unittest.TestCase):
 
         navigate.assert_called_once_with(1, "route_1", dodge=True)
 
-    def test_rest_backs_away_then_restores_forward_arrow_direction(self):
+    def test_rest_does_not_back_away_after_successful_click(self):
         events = []
         keyboard = mock.Mock()
         keyboard.press.side_effect = lambda key: events.append(("down", key))
@@ -308,13 +308,12 @@ class NavigationTests(unittest.TestCase):
         ):
             NIGHTS.rest_and_refresh(1)
 
-        back_down = events.index(("down", "s"))
-        back_up = events.index(("up", "s"))
-        forward_down = events.index(("down", "w"))
-        forward_up = events.index(("up", "w"))
-        self.assertIn(("sleep", 0.75), events[back_down:back_up])
-        self.assertIn(("sleep", 0.025), events[forward_down:forward_up])
-        self.assertLess(back_up, forward_down)
+        movement_events = [
+            event
+            for event in events
+            if event[0] in {"down", "up"} and event[1] in {"s", "w"}
+        ]
+        self.assertEqual(movement_events, [])
 
     def test_rest_backs_up_and_retries_f_when_button_does_not_appear(self):
         events = []
@@ -354,7 +353,11 @@ class NavigationTests(unittest.TestCase):
             if event == ("tap", "f")
         ]
         first_back = events.index(("down", "s"))
+        s_downs = [event for event in events if event == ("down", "s")]
+        w_downs = [event for event in events if event == ("down", "w")]
         self.assertEqual(len(f_taps), 2)
+        self.assertEqual(len(s_downs), 1)
+        self.assertEqual(len(w_downs), 1)
         self.assertLess(f_taps[0], first_back)
         self.assertLess(first_back, f_taps[1])
 
