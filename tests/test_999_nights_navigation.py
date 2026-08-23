@@ -189,6 +189,45 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(reached)
         self.assertEqual(observe.call_count, 2)
 
+    def test_dodge_crossing_counts_when_moving_icon_disappears_after_one_dodge(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (72.8, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), None, 0.41),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "route_2", dodge=True)
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, 2)
+
+    def test_dodge_does_not_assume_crossing_when_lost_icon_was_too_far_away(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (120.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), None, 0.41),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "route_2", dodge=True)
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, 3)
+
     def test_low_confidence_far_from_last_icon_does_not_count_as_arrival(self):
         observations = iter(
             [

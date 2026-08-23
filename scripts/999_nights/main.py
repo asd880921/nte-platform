@@ -48,6 +48,8 @@ DODGE_SETTLE_SECONDS = 0.7
 DODGE_DURATION_SECONDS = 60.0
 DODGE_W_LEAD_IN_SECONDS = 0.03
 DODGE_CHORD_SECONDS = 0.08
+DODGE_MARKER_REACH_DISTANCE = 90.0
+DODGE_ARROW_STABILITY_DISTANCE = 8.0
 MARKER_CROSS_SECONDS = 0.25
 CAMPFIRE_BACK_AWAY_SECONDS = 0.75
 ARRIVAL_DISTANCE = 17.0
@@ -519,9 +521,11 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
     best_distance = float("inf")
     last_distance = None
     last_target = None
+    last_pose = None
     lost_count = 0
     last_status = 0.0
     walking = False
+    dodge_just_performed = False
     campfire_occlusion_active = False
 
     def hold_w():
@@ -592,11 +596,29 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                     if last_target is not None
                     else float("inf")
                 )
+                crossed_by_last_dodge = (
+                    dodge
+                    and dodge_just_performed
+                    and last_distance is not None
+                    and last_distance <= DODGE_MARKER_REACH_DISTANCE
+                    and last_pose is not None
+                    and target_distance(pose, last_pose)
+                    <= DODGE_ARROW_STABILITY_DISTANCE
+                )
                 if (
                     target_name != "campfire"
-                    and distance_to_last_target <= ICON_OCCLUSION_DISTANCE
+                    and (
+                        distance_to_last_target <= ICON_OCCLUSION_DISTANCE
+                        or crossed_by_last_dodge
+                    )
                 ):
-                    return finish_marker(f"已抵達{label}（圖示被角色遮住）")
+                    reason = (
+                        "閃避後圖示被角色遮住"
+                        if crossed_by_last_dodge
+                        else "圖示被角色遮住"
+                    )
+                    return finish_marker(f"已抵達{label}（{reason}）")
+                dodge_just_performed = False
                 if lost_count == TARGET_LOST_LIMIT:
                     log(
                         f"    …暫時找不到{label}（最高信心 {confidence:.2f}），"
@@ -625,9 +647,11 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
             best_distance = min(best_distance, distance)
             last_distance = distance
             last_target = target
+            last_pose = pose
             heading_error = heading_error_to_target(pose, target)
             if abs(heading_error) > MOVE_ALIGNMENT_TOLERANCE:
                 release_w()
+                dodge_just_performed = False
                 steer_toward(pose, target)
                 hold_key_for("w", TURN_PROBE_TAP_SECONDS)
                 sleep_check(TURN_SETTLE_SECONDS)
@@ -640,6 +664,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
 
             if dodge:
                 perform_dodge()
+                dodge_just_performed = True
                 remaining = (
                     max(0.0, deadline - time.monotonic())
                     if deadline
