@@ -46,12 +46,13 @@ MOVE_STEP_SECONDS = 0.18
 DODGE_SETTLE_SECONDS = 1.0
 DODGE_DURATION_SECONDS = 60.0
 ARRIVAL_DISTANCE = 17.0
+CAMPFIRE_ARRIVAL_DISTANCE = 8.0
 PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
 TURN_DEAD_ZONE = math.radians(7)
-TURN_PIXELS_PER_RADIAN = 105
-TURN_MAX_PIXELS = 70
+TURN_PIXELS_PER_RADIAN = 240
+TURN_MAX_PIXELS = 360
 
 # 以 1920x1080 遊戲 client area 為基準，只讀左上小地圖區域。
 MINIMAP_ROI = {"left": 0.0, "top": 0.0, "right": 0.15, "bottom": 0.27}
@@ -446,67 +447,99 @@ def target_distance(pose, target):
 def navigate_to(hwnd, target_name, dodge=False, deadline=None):
     label = TARGET_LABELS[target_name]
     mode = "閃避移動" if dodge else "移動"
+    arrival_distance = (
+        CAMPFIRE_ARRIVAL_DISTANCE
+        if target_name == "campfire"
+        else ARRIVAL_DISTANCE
+    )
     log_step("➜", f"{mode}至{label}")
     best_distance = float("inf")
     last_distance = None
     lost_count = 0
     last_status = 0.0
+    walking = False
 
-    while deadline is None or time.monotonic() < deadline:
-        check_stop()
-        pose, target, confidence = observe_target(hwnd, target_name)
-        if pose is None:
-            release_movement_keys()
-            sleep_check(POLL_INTERVAL)
-            continue
-        if target is None:
-            lost_count += 1
-            release_movement_keys()
-            if last_distance is not None and last_distance <= ARRIVAL_DISTANCE + 8:
-                log_step("✓", f"已抵達{label}（圖示被角色遮住）")
+    def hold_w():
+        nonlocal walking
+        if not walking:
+            keyboard.press("w")
+            walking = True
+
+    def release_w():
+        nonlocal walking
+        if walking:
+            keyboard.release("w")
+            walking = False
+
+    try:
+        while deadline is None or time.monotonic() < deadline:
+            check_stop()
+            pose, target, confidence = observe_target(hwnd, target_name)
+            if pose is None:
+                release_w()
+                sleep_check(POLL_INTERVAL)
+                continue
+            if target is None:
+                lost_count += 1
+                release_w()
+                lost_margin = 3 if target_name == "campfire" else 8
+                if (
+                    last_distance is not None
+                    and last_distance <= arrival_distance + lost_margin
+                ):
+                    log_step("✓", f"已抵達{label}（圖示被角色遮住）")
+                    return True
+                if lost_count == TARGET_LOST_LIMIT:
+                    log(
+                        f"    …暫時找不到{label}（最高信心 {confidence:.2f}），"
+                        "持續重試"
+                    )
+                sleep_check(POLL_INTERVAL)
+                continue
+
+            lost_count = 0
+            distance = target_distance(pose, target)
+            if distance <= arrival_distance:
+                log_step("✓", f"已抵達{label}（距離 {distance:.1f}px）")
                 return True
-            if lost_count == TARGET_LOST_LIMIT:
-                log(f"    …暫時找不到{label}（最高信心 {confidence:.2f}），持續重試")
-            sleep_check(POLL_INTERVAL)
-            continue
+            if (
+                target_name != "campfire"
+                and best_distance <= PASS_DISTANCE
+                and distance >= best_distance + PASS_MARGIN
+            ):
+                log_step("✓", f"已通過{label}（最近距離 {best_distance:.1f}px）")
+                return True
 
-        lost_count = 0
-        distance = target_distance(pose, target)
-        if distance <= ARRIVAL_DISTANCE:
-            release_movement_keys()
-            log_step("✓", f"已抵達{label}（距離 {distance:.1f}px）")
-            return True
-        if best_distance <= PASS_DISTANCE and distance >= best_distance + PASS_MARGIN:
-            release_movement_keys()
-            log_step("✓", f"已通過{label}（最近距離 {best_distance:.1f}px）")
-            return True
+            best_distance = min(best_distance, distance)
+            last_distance = distance
+            steer_toward(pose, target)
 
-        best_distance = min(best_distance, distance)
-        last_distance = distance
-        steer_toward(pose, target)
+            now = time.monotonic()
+            if now - last_status >= 3:
+                last_status = now
+                log(f"    …距離{label} {distance:.1f}px")
 
-        now = time.monotonic()
-        if now - last_status >= 3:
-            last_status = now
-            log(f"    …距離{label} {distance:.1f}px")
-
-        if dodge:
-            keyboard.press("w")
-            try:
-                keyboard.press_and_release("shift")
-            finally:
-                keyboard.release("w")
-            remaining = max(0.0, deadline - time.monotonic()) if deadline else DODGE_SETTLE_SECONDS
-            sleep_check(min(DODGE_SETTLE_SECONDS, remaining))
-        else:
-            keyboard.press("w")
-            try:
+            if dodge:
+                keyboard.press("w")
+                try:
+                    keyboard.press_and_release("shift")
+                finally:
+                    keyboard.release("w")
+                remaining = (
+                    max(0.0, deadline - time.monotonic())
+                    if deadline
+                    else DODGE_SETTLE_SECONDS
+                )
+                sleep_check(min(DODGE_SETTLE_SECONDS, remaining))
+            else:
+                hold_w()
                 sleep_check(MOVE_STEP_SECONDS)
-            finally:
-                keyboard.release("w")
-
-    release_movement_keys()
-    return False
+        return False
+    finally:
+        release_w()
+        if dodge:
+            # 若 Shift 送出期間中止，也確保不會留下按鍵狀態。
+            keyboard.release("shift")
 
 
 def tap_key(key, settle=0.0):
