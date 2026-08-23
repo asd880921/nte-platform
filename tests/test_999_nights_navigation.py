@@ -63,6 +63,42 @@ class NavigationTests(unittest.TestCase):
         w_events = [event for event in events if event[1] == "w"]
         self.assertEqual(w_events, [("down", "w"), ("up", "w")])
 
+    def test_dodge_holds_w_and_shift_together_long_enough_for_game_input(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (50.0, 0.0), 1.0),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 1.0),
+            ]
+        )
+        held_keys = set()
+        held_during_sleep = []
+        keyboard = mock.Mock()
+        keyboard.press.side_effect = held_keys.add
+        keyboard.release.side_effect = held_keys.discard
+
+        def record_sleep(seconds):
+            held_during_sleep.append((seconds, frozenset(held_keys)))
+
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(NIGHTS, "sleep_check", side_effect=record_sleep),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            NIGHTS.navigate_to(
+                1,
+                "route_1",
+                dodge=True,
+                deadline=NIGHTS.time.monotonic() + 10,
+            )
+
+        simultaneous_holds = [
+            seconds
+            for seconds, keys in held_during_sleep
+            if {"w", "shift"}.issubset(keys)
+        ]
+        self.assertTrue(simultaneous_holds)
+        self.assertGreaterEqual(max(simultaneous_holds), 0.05)
+
     def test_large_heading_error_uses_a_fast_camera_turn(self):
         mouse_event = mock.Mock()
         with mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event):

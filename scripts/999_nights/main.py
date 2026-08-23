@@ -46,6 +46,8 @@ MOVE_STEP_SECONDS = 0.18
 CAMPFIRE_PROMPT_POLL_SECONDS = 0.015
 DODGE_SETTLE_SECONDS = 1.0
 DODGE_DURATION_SECONDS = 60.0
+DODGE_W_LEAD_IN_SECONDS = 0.03
+DODGE_CHORD_SECONDS = 0.08
 MARKER_CROSS_SECONDS = 0.25
 CAMPFIRE_BACK_AWAY_SECONDS = 0.75
 ARRIVAL_DISTANCE = 17.0
@@ -146,6 +148,20 @@ def hold_key_for(key, seconds):
         sleep_check(seconds)
     finally:
         keyboard.release(key)
+
+
+def perform_dodge():
+    """先讓遊戲收到前進，再以 W + Shift 的重疊按鍵觸發閃避。"""
+    keyboard.press("w")
+    try:
+        sleep_check(DODGE_W_LEAD_IN_SECONDS)
+        keyboard.press("shift")
+        try:
+            sleep_check(DODGE_CHORD_SECONDS)
+        finally:
+            keyboard.release("shift")
+    finally:
+        keyboard.release("w")
 
 
 def wait_for_start():
@@ -617,11 +633,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                 log(f"    …距離{label} {distance:.1f}px")
 
             if dodge:
-                keyboard.press("w")
-                try:
-                    keyboard.press_and_release("shift")
-                finally:
-                    keyboard.release("w")
+                perform_dodge()
                 remaining = (
                     max(0.0, deadline - time.monotonic())
                     if deadline
