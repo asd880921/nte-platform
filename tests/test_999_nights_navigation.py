@@ -235,8 +235,8 @@ class NavigationTests(unittest.TestCase):
     def test_campfire_keeps_moving_when_player_arrow_occludes_icon(self):
         observations = iter(
             [
+                ((0.0, 0.0, 0.0), (60.0, 0.0), 0.85),
                 ((0.0, 0.0, 0.0), (40.0, 0.0), 0.85),
-                ((0.0, 0.0, 0.0), (20.0, 0.0), 0.85),
                 ((0.0, 0.0, 0.0), None, 0.48),
                 ((0.0, 0.0, 0.0), (5.0, 0.0), 0.85),
             ]

@@ -50,9 +50,10 @@ MARKER_CROSS_SECONDS = 0.25
 CAMPFIRE_BACK_AWAY_SECONDS = 1.5
 ARRIVAL_DISTANCE = 17.0
 CAMPFIRE_ARRIVAL_DISTANCE = 8.0
-CAMPFIRE_OCCLUSION_DISTANCE = 34.0
+CAMPFIRE_OCCLUSION_DISTANCE = 48.0
 CAMPFIRE_OCCLUSION_STEP_SECONDS = 0.04
-CAMPFIRE_OCCLUSION_STEPS = 4
+CAMPFIRE_OCCLUSION_STEPS = 6
+FIRE_OCCLUSION_CONFIDENCE = 0.40
 ICON_OCCLUSION_DISTANCE = 34.0
 PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
@@ -502,6 +503,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
     lost_count = 0
     last_status = 0.0
     walking = False
+    campfire_occlusion_active = False
 
     def hold_w():
         nonlocal walking
@@ -541,8 +543,18 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                 lost_count += 1
                 if (
                     target_name == "campfire"
+                    and not campfire_occlusion_active
                     and last_distance is not None
                     and last_distance <= CAMPFIRE_OCCLUSION_DISTANCE
+                    and (
+                        confidence >= FIRE_OCCLUSION_CONFIDENCE
+                        or last_distance <= ICON_OCCLUSION_DISTANCE
+                    )
+                ):
+                    campfire_occlusion_active = True
+                if (
+                    target_name == "campfire"
+                    and campfire_occlusion_active
                     and lost_count <= CAMPFIRE_OCCLUSION_STEPS
                 ):
                     if lost_count == 1:
@@ -571,6 +583,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                 continue
 
             lost_count = 0
+            campfire_occlusion_active = False
             distance = target_distance(pose, target)
             if distance <= arrival_distance:
                 if target_name == "campfire":
