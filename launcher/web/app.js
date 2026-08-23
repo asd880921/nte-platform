@@ -294,8 +294,7 @@
   function updateHotkeyUI() {
     startKeyPreview.textContent = hotkeyDraft.start_key;
     stopKeyPreview.textContent = hotkeyDraft.stop_key;
-    keyPickerLabel.textContent = hotkeyAction === "start"
-      ? "選擇開始按鍵" : "選擇停止按鍵";
+    keyPickerLabel.textContent = "設定快捷鍵";
 
     assignmentRows.forEach((row) => {
       const active = row.dataset.action === hotkeyAction;
@@ -337,7 +336,9 @@
         const swaps = hotkeyDraft[otherField] === key;
         hotkeyDraft[ownField] = key;
         if (swaps) hotkeyDraft[otherField] = previous;
-        settingsMessage(swaps ? "已交換開始與停止快捷鍵。" : "");
+        settingsMessage(swaps
+          ? "已交換開始與停止快捷鍵。"
+          : "先選擇要設定的功能，再按下想使用的按鍵。");
         updateHotkeyUI();
       });
       functionKeyGrid.appendChild(button);
@@ -348,7 +349,7 @@
     row.addEventListener("click", () => {
       if (hotkeyLocked) return;
       hotkeyAction = row.dataset.action;
-      settingsMessage();
+      settingsMessage("先選擇要設定的功能，再按下想使用的按鍵。");
       updateHotkeyUI();
     });
   });
@@ -370,7 +371,7 @@
       if (hotkeyLocked) {
         settingsMessage("請先停止執行中的腳本，再修改快捷鍵。", "error");
       } else {
-        settingsMessage("選擇用途，再按下想指派的功能鍵。");
+        settingsMessage("先選擇要設定的功能，再按下想使用的按鍵。");
       }
       updateHotkeyUI();
       requestAnimationFrame(() => assignmentRows[0].focus());

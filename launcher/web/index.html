@@ -31,8 +31,12 @@
         <button id="settingsBtn" class="ghost-btn" title="快捷鍵設定" aria-label="快捷鍵設定">
           <svg class="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20.3h-3v-.08a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.03h-.08v-3h.08A1.7 1.7 0 0 0 7 9.94a1.7 1.7 0 0 0-.34-1.88L6.6 8l2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7v-.08h3v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06L19.8 8l-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z" />
+            <path d="M4 7h10" />
+            <path d="M18 7h2" />
+            <circle cx="16" cy="7" r="2" />
+            <path d="M4 17h2" />
+            <path d="M10 17h10" />
+            <circle cx="8" cy="17" r="2" />
           </svg>
         </button>
         <button id="aboutBtn" class="ghost-btn" title="關於">
@@ -129,7 +133,7 @@
          aria-labelledby="settingsTitle" aria-describedby="settingsSubtitle">
       <button id="settingsClose" class="about-close" aria-label="關閉">✕</button>
       <h2 id="settingsTitle" class="about-title">快捷鍵</h2>
-      <p id="settingsSubtitle" class="settings-subtitle">套用到所有腳本</p>
+      <p id="settingsSubtitle" class="settings-subtitle">所有腳本共用</p>
 
       <form id="settingsForm">
         <div class="assignment-list" aria-label="快捷鍵用途">
@@ -137,7 +141,7 @@
                   aria-pressed="true">
             <span class="assignment-copy">
               <b>開始執行</b>
-              <small>腳本待機時開始循環</small>
+              <small>按下快捷鍵開始執行腳本</small>
             </span>
             <kbd id="startKeyPreview">F1</kbd>
           </button>
@@ -145,15 +149,15 @@
                   aria-pressed="false">
             <span class="assignment-copy">
               <b>停止執行</b>
-              <small>停止本輪並回到待機</small>
+              <small>按下快捷鍵停止腳本</small>
             </span>
             <kbd id="stopKeyPreview">F2</kbd>
           </button>
         </div>
 
         <div class="key-picker-head">
-          <span id="keyPickerLabel">選擇開始按鍵</span>
-          <small>選到已使用的按鍵會交換</small>
+          <span id="keyPickerLabel">設定快捷鍵</span>
+          <small>選到已使用的按鍵時，兩者會自動交換</small>
         </div>
         <div id="functionKeyGrid" class="function-key-grid" role="radiogroup"
              aria-labelledby="keyPickerLabel"></div>
