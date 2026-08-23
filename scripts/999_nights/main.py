@@ -57,6 +57,7 @@ PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
 MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
 TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
+TURN_PROBE_TAP_SECONDS = 0.025
 TURN_SETTLE_SECONDS = 0.05
 TURN_PIXELS_PER_RADIAN = 240
 TURN_MAX_PIXELS = 360
@@ -456,10 +457,14 @@ def normalize_angle(angle):
     return (angle + math.pi) % (2 * math.pi) - math.pi
 
 
-def steer_toward(pose, target):
+def heading_error_to_target(pose, target):
     player_x, player_y, heading = pose
     target_angle = math.atan2(target[1] - player_y, target[0] - player_x)
-    error = normalize_angle(target_angle - heading)
+    return normalize_angle(target_angle - heading)
+
+
+def steer_toward(pose, target):
+    error = heading_error_to_target(pose, target)
     if abs(error) <= TURN_DEAD_ZONE:
         return error
     pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, error * TURN_PIXELS_PER_RADIAN)))
@@ -558,9 +563,15 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
 
             best_distance = min(best_distance, distance)
             last_distance = distance
-            heading_error = steer_toward(pose, target)
+            heading_error = heading_error_to_target(pose, target)
             if abs(heading_error) > MOVE_ALIGNMENT_TOLERANCE:
                 release_w()
+                steer_toward(pose, target)
+                keyboard.press("w")
+                try:
+                    sleep_check(TURN_PROBE_TAP_SECONDS)
+                finally:
+                    keyboard.release("w")
                 sleep_check(TURN_SETTLE_SECONDS)
                 continue
 

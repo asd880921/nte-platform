@@ -76,6 +76,7 @@ class NavigationTests(unittest.TestCase):
 
         keyboard = mock.Mock()
         keyboard.press.side_effect = lambda key: events.append(f"down:{key}")
+        keyboard.release.side_effect = lambda key: events.append(f"up:{key}")
         with (
             mock.patch.object(NIGHTS, "observe_target", side_effect=observe),
             mock.patch.object(NIGHTS, "sleep_check"),
@@ -88,10 +89,19 @@ class NavigationTests(unittest.TestCase):
         ):
             NIGHTS.navigate_to(1, "door")
 
-        second_observation = [
+        observations_at = [
             index for index, event in enumerate(events) if event == "observe"
-        ][1]
-        self.assertGreater(events.index("down:w"), second_observation)
+        ]
+        w_down_at = [
+            index for index, event in enumerate(events) if event == "down:w"
+        ]
+        w_up_at = [
+            index for index, event in enumerate(events) if event == "up:w"
+        ]
+        self.assertLess(events.index("turn"), w_down_at[0])
+        self.assertLess(w_down_at[0], w_up_at[0])
+        self.assertLess(w_up_at[0], observations_at[1])
+        self.assertGreater(w_down_at[1], observations_at[1])
 
     def test_regular_icon_occlusion_counts_as_reaching_the_marker(self):
         observations = iter(
@@ -112,6 +122,37 @@ class NavigationTests(unittest.TestCase):
 
         self.assertTrue(reached)
         self.assertEqual(observe.call_count, 2)
+
+    def test_walking_stops_before_correcting_a_new_heading_error(self):
+        events = []
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (50.0, 0.0), 0.68),
+                ((0.0, 0.0, math.radians(9)), (40.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), (30.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+        keyboard = mock.Mock()
+        keyboard.press.side_effect = lambda key: events.append(f"down:{key}")
+        keyboard.release.side_effect = lambda key: events.append(f"up:{key}")
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+            mock.patch.object(
+                NIGHTS.win32api,
+                "mouse_event",
+                side_effect=lambda *_args: events.append("turn"),
+            ),
+        ):
+            NIGHTS.navigate_to(1, "door")
+
+        turn_at = events.index("turn")
+        first_up_at = events.index("up:w")
+        probe_down_at = events.index("down:w", first_up_at)
+        self.assertLess(first_up_at, turn_at)
+        self.assertLess(turn_at, probe_down_at)
 
     def test_campfire_stops_as_soon_as_interaction_prompt_appears(self):
         observations = iter(
