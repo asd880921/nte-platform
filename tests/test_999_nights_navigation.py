@@ -169,7 +169,7 @@ class NavigationTests(unittest.TestCase):
         back_up = events.index(("up", "s"))
         forward_down = events.index(("down", "w"))
         forward_up = events.index(("up", "w"))
-        self.assertIn(("sleep", 1.5), events[back_down:back_up])
+        self.assertIn(("sleep", 0.75), events[back_down:back_up])
         self.assertIn(("sleep", 0.025), events[forward_down:forward_up])
         self.assertLess(back_up, forward_down)
 
@@ -233,6 +233,11 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(observe.call_count, 1)
 
     def test_campfire_keeps_moving_when_player_arrow_occludes_icon(self):
+        self.assertAlmostEqual(
+            NIGHTS.CAMPFIRE_OCCLUSION_STEP_SECONDS
+            * NIGHTS.CAMPFIRE_OCCLUSION_STEPS,
+            0.20,
+        )
         observations = iter(
             [
                 ((0.0, 0.0, 0.0), (60.0, 0.0), 0.85),
