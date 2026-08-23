@@ -1,4 +1,5 @@
 import importlib.util
+import math
 import os
 import sys
 import unittest
@@ -42,7 +43,7 @@ class NavigationTests(unittest.TestCase):
 
         with (
             mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
-            mock.patch.object(NIGHTS, "steer_toward"),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
             mock.patch.object(NIGHTS, "sleep_check"),
             mock.patch.object(NIGHTS, "keyboard", keyboard),
         ):
@@ -59,6 +60,39 @@ class NavigationTests(unittest.TestCase):
         horizontal_pixels = mouse_event.call_args.args[1]
         self.assertGreaterEqual(abs(horizontal_pixels), 300)
 
+    def test_character_does_not_walk_until_arrow_is_aligned(self):
+        events = []
+        observations = iter(
+            [
+                ((0.0, 0.0, math.radians(9)), (50.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), (40.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+
+        def observe(*_args):
+            events.append("observe")
+            return next(observations)
+
+        keyboard = mock.Mock()
+        keyboard.press.side_effect = lambda key: events.append(f"down:{key}")
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observe),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+            mock.patch.object(
+                NIGHTS.win32api,
+                "mouse_event",
+                side_effect=lambda *_args: events.append("turn"),
+            ),
+        ):
+            NIGHTS.navigate_to(1, "door")
+
+        second_observation = [
+            index for index, event in enumerate(events) if event == "observe"
+        ][1]
+        self.assertGreater(events.index("down:w"), second_observation)
+
     def test_regular_icon_occlusion_counts_as_reaching_the_marker(self):
         observations = iter(
             [
@@ -70,7 +104,7 @@ class NavigationTests(unittest.TestCase):
         keyboard = mock.Mock()
         with (
             mock.patch.object(NIGHTS, "observe_target", observe),
-            mock.patch.object(NIGHTS, "steer_toward"),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
             mock.patch.object(NIGHTS, "sleep_check"),
             mock.patch.object(NIGHTS, "keyboard", keyboard),
         ):
@@ -92,7 +126,7 @@ class NavigationTests(unittest.TestCase):
         keyboard = mock.Mock()
         with (
             mock.patch.object(NIGHTS, "observe_target", observe),
-            mock.patch.object(NIGHTS, "steer_toward"),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
             mock.patch.object(NIGHTS, "sleep_check"),
             mock.patch.object(NIGHTS, "keyboard", keyboard),
             mock.patch.object(
@@ -130,7 +164,7 @@ class NavigationTests(unittest.TestCase):
                 "wait_for_campfire_prompt",
                 wait_for_prompt,
             ),
-            mock.patch.object(NIGHTS, "steer_toward"),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
             mock.patch.object(NIGHTS, "sleep_check"),
             mock.patch.object(NIGHTS, "keyboard", keyboard),
         ):

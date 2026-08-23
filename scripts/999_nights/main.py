@@ -49,12 +49,15 @@ DODGE_DURATION_SECONDS = 60.0
 ARRIVAL_DISTANCE = 17.0
 CAMPFIRE_ARRIVAL_DISTANCE = 8.0
 CAMPFIRE_OCCLUSION_DISTANCE = 34.0
-CAMPFIRE_OCCLUSION_STEPS = 5
+CAMPFIRE_OCCLUSION_STEP_SECONDS = 0.06
+CAMPFIRE_OCCLUSION_STEPS = 4
 ICON_OCCLUSION_DISTANCE = 34.0
 PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
-TURN_DEAD_ZONE = math.radians(7)
+MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
+TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
+TURN_SETTLE_SECONDS = 0.05
 TURN_PIXELS_PER_RADIAN = 240
 TURN_MAX_PIXELS = 360
 
@@ -458,9 +461,10 @@ def steer_toward(pose, target):
     target_angle = math.atan2(target[1] - player_y, target[0] - player_x)
     error = normalize_angle(target_angle - heading)
     if abs(error) <= TURN_DEAD_ZONE:
-        return
+        return error
     pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, error * TURN_PIXELS_PER_RADIAN)))
     win32api.mouse_event(MOUSEEVENTF_MOVE, pixels, 0, 0, 0)
+    return error
 
 
 def target_distance(pose, target):
@@ -516,7 +520,9 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                     if lost_count == 1:
                         log("    …火堆圖示被角色遮住，沿最後方向等待 F 提示")
                     hold_w()
-                    if wait_for_campfire_prompt(hwnd, MOVE_STEP_SECONDS):
+                    if wait_for_campfire_prompt(
+                        hwnd, CAMPFIRE_OCCLUSION_STEP_SECONDS
+                    ):
                         log_step("✓", "偵測到 F 互動提示，已抵達火堆")
                         return True
                     continue
@@ -552,7 +558,11 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
 
             best_distance = min(best_distance, distance)
             last_distance = distance
-            steer_toward(pose, target)
+            heading_error = steer_toward(pose, target)
+            if abs(heading_error) > MOVE_ALIGNMENT_TOLERANCE:
+                release_w()
+                sleep_check(TURN_SETTLE_SECONDS)
+                continue
 
             now = time.monotonic()
             if now - last_status >= 3:
