@@ -43,13 +43,15 @@ VK_F2 = 0x71
 
 POLL_INTERVAL = 0.12
 MOVE_STEP_SECONDS = 0.18
-CAMPFIRE_PROMPT_POLL_SECONDS = 0.03
+CAMPFIRE_PROMPT_POLL_SECONDS = 0.015
 DODGE_SETTLE_SECONDS = 1.0
 DODGE_DURATION_SECONDS = 60.0
+MARKER_CROSS_SECONDS = 0.25
+CAMPFIRE_BACK_AWAY_SECONDS = 1.5
 ARRIVAL_DISTANCE = 17.0
 CAMPFIRE_ARRIVAL_DISTANCE = 8.0
 CAMPFIRE_OCCLUSION_DISTANCE = 34.0
-CAMPFIRE_OCCLUSION_STEP_SECONDS = 0.06
+CAMPFIRE_OCCLUSION_STEP_SECONDS = 0.04
 CAMPFIRE_OCCLUSION_STEPS = 4
 ICON_OCCLUSION_DISTANCE = 34.0
 PASS_DISTANCE = 32.0
@@ -130,7 +132,17 @@ def sleep_check(seconds):
 def release_movement_keys():
     """任何中止或例外都確保不留下按住的移動鍵。"""
     keyboard.release("w")
+    keyboard.release("s")
     keyboard.release("shift")
+
+
+def hold_key_for(key, seconds):
+    """按住指定按鍵一段可被 F2 中止的時間，任何情況都保證放開。"""
+    keyboard.press(key)
+    try:
+        sleep_check(seconds)
+    finally:
+        keyboard.release(key)
 
 
 def wait_for_start():
@@ -503,6 +515,17 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
             keyboard.release("w")
             walking = False
 
+    def finish_marker(message):
+        """一般地標命中後再往前穿越一小段，避免圖示剛重疊就過早結束。"""
+        log_step("✓", message)
+        hold_w()
+        duration = MARKER_CROSS_SECONDS
+        if deadline is not None:
+            duration = min(duration, max(0.0, deadline - time.monotonic()))
+        if duration > 0:
+            sleep_check(duration)
+        return True
+
     try:
         while deadline is None or time.monotonic() < deadline:
             check_stop()
@@ -538,8 +561,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                     and last_distance is not None
                     and last_distance <= ICON_OCCLUSION_DISTANCE
                 ):
-                    log_step("✓", f"已抵達{label}（圖示被角色遮住）")
-                    return True
+                    return finish_marker(f"已抵達{label}（圖示被角色遮住）")
                 if lost_count == TARGET_LOST_LIMIT:
                     log(
                         f"    …暫時找不到{label}（最高信心 {confidence:.2f}），"
@@ -551,15 +573,18 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
             lost_count = 0
             distance = target_distance(pose, target)
             if distance <= arrival_distance:
-                log_step("✓", f"已抵達{label}（距離 {distance:.1f}px）")
-                return True
+                if target_name == "campfire":
+                    log_step("✓", f"已抵達{label}（距離 {distance:.1f}px）")
+                    return True
+                return finish_marker(f"已抵達{label}（距離 {distance:.1f}px）")
             if (
                 target_name != "campfire"
                 and best_distance <= PASS_DISTANCE
                 and distance >= best_distance + PASS_MARGIN
             ):
-                log_step("✓", f"已通過{label}（最近距離 {best_distance:.1f}px）")
-                return True
+                return finish_marker(
+                    f"已通過{label}（最近距離 {best_distance:.1f}px）"
+                )
 
             best_distance = min(best_distance, distance)
             last_distance = distance
@@ -567,11 +592,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
             if abs(heading_error) > MOVE_ALIGNMENT_TOLERANCE:
                 release_w()
                 steer_toward(pose, target)
-                keyboard.press("w")
-                try:
-                    sleep_check(TURN_PROBE_TAP_SECONDS)
-                finally:
-                    keyboard.release("w")
+                hold_key_for("w", TURN_PROBE_TAP_SECONDS)
                 sleep_check(TURN_SETTLE_SECONDS)
                 continue
 
@@ -641,6 +662,11 @@ def rest_and_refresh(hwnd):
     sleep_check(0.5)
     log_step("▸", "按 ESC 關閉休息畫面")
     tap_key("esc", 0.5)
+    log_step("◀", f"退離火堆 {CAMPFIRE_BACK_AWAY_SECONDS:.1f} 秒 (S)")
+    hold_key_for("s", CAMPFIRE_BACK_AWAY_SECONDS)
+    log_step("▸", "短按 W 恢復角色正面箭頭")
+    hold_key_for("w", TURN_PROBE_TAP_SECONDS)
+    sleep_check(TURN_SETTLE_SECONDS)
 
 
 def run_dodge_loop(hwnd):

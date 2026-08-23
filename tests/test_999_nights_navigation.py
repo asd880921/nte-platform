@@ -123,6 +123,56 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(reached)
         self.assertEqual(observe.call_count, 2)
 
+    def test_marker_arrival_advances_for_shared_crossing_duration(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (50.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+        sleeps = []
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(NIGHTS, "sleep_check", side_effect=sleeps.append),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            NIGHTS.navigate_to(1, "door")
+
+        self.assertIn(0.25, sleeps)
+
+    def test_rest_backs_away_then_restores_forward_arrow_direction(self):
+        events = []
+        keyboard = mock.Mock()
+        keyboard.press.side_effect = lambda key: events.append(("down", key))
+        keyboard.release.side_effect = lambda key: events.append(("up", key))
+        keyboard.press_and_release.side_effect = (
+            lambda key: events.append(("tap", key))
+        )
+        with (
+            mock.patch.object(
+                NIGHTS,
+                "wait_for_ui",
+                side_effect=((10, 10), (20, 20)),
+            ),
+            mock.patch.object(NIGHTS, "click_window_at"),
+            mock.patch.object(
+                NIGHTS,
+                "sleep_check",
+                side_effect=lambda seconds: events.append(("sleep", seconds)),
+            ),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            NIGHTS.rest_and_refresh(1)
+
+        back_down = events.index(("down", "s"))
+        back_up = events.index(("up", "s"))
+        forward_down = events.index(("down", "w"))
+        forward_up = events.index(("up", "w"))
+        self.assertIn(("sleep", 1.5), events[back_down:back_up])
+        self.assertIn(("sleep", 0.025), events[forward_down:forward_up])
+        self.assertLess(back_up, forward_down)
+
     def test_walking_stops_before_correcting_a_new_heading_error(self):
         events = []
         observations = iter(
