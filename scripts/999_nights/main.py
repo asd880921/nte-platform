@@ -48,6 +48,9 @@ DODGE_SETTLE_SECONDS = 1.0
 DODGE_DURATION_SECONDS = 60.0
 ARRIVAL_DISTANCE = 17.0
 CAMPFIRE_ARRIVAL_DISTANCE = 8.0
+CAMPFIRE_OCCLUSION_DISTANCE = 34.0
+CAMPFIRE_OCCLUSION_STEPS = 5
+ICON_OCCLUSION_DISTANCE = 34.0
 PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
@@ -504,11 +507,25 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                 continue
             if target is None:
                 lost_count += 1
-                release_w()
-                lost_margin = 3 if target_name == "campfire" else 8
                 if (
-                    last_distance is not None
-                    and last_distance <= arrival_distance + lost_margin
+                    target_name == "campfire"
+                    and last_distance is not None
+                    and last_distance <= CAMPFIRE_OCCLUSION_DISTANCE
+                    and lost_count <= CAMPFIRE_OCCLUSION_STEPS
+                ):
+                    if lost_count == 1:
+                        log("    …火堆圖示被角色遮住，沿最後方向等待 F 提示")
+                    hold_w()
+                    if wait_for_campfire_prompt(hwnd, MOVE_STEP_SECONDS):
+                        log_step("✓", "偵測到 F 互動提示，已抵達火堆")
+                        return True
+                    continue
+
+                release_w()
+                if (
+                    target_name != "campfire"
+                    and last_distance is not None
+                    and last_distance <= ICON_OCCLUSION_DISTANCE
                 ):
                     log_step("✓", f"已抵達{label}（圖示被角色遮住）")
                     return True

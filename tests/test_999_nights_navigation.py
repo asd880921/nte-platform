@@ -59,6 +59,26 @@ class NavigationTests(unittest.TestCase):
         horizontal_pixels = mouse_event.call_args.args[1]
         self.assertGreaterEqual(abs(horizontal_pixels), 300)
 
+    def test_regular_icon_occlusion_counts_as_reaching_the_marker(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (30.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), None, 0.45),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "steer_toward"),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "door")
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, 2)
+
     def test_campfire_stops_as_soon_as_interaction_prompt_appears(self):
         observations = iter(
             [
@@ -86,6 +106,40 @@ class NavigationTests(unittest.TestCase):
 
         self.assertEqual(prompt_visible.call_count, 2)
         self.assertEqual(observe.call_count, 1)
+
+    def test_campfire_keeps_moving_when_player_arrow_occludes_icon(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (40.0, 0.0), 0.85),
+                ((0.0, 0.0, 0.0), (20.0, 0.0), 0.85),
+                ((0.0, 0.0, 0.0), None, 0.48),
+                ((0.0, 0.0, 0.0), (5.0, 0.0), 0.85),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        wait_for_prompt = mock.Mock(side_effect=(False, False, True))
+        events = []
+        keyboard = mock.Mock()
+        keyboard.press.side_effect = lambda key: events.append(("down", key))
+        keyboard.release.side_effect = lambda key: events.append(("up", key))
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "campfire_prompt_visible", return_value=False),
+            mock.patch.object(
+                NIGHTS,
+                "wait_for_campfire_prompt",
+                wait_for_prompt,
+            ),
+            mock.patch.object(NIGHTS, "steer_toward"),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            NIGHTS.navigate_to(1, "campfire")
+
+        self.assertEqual(observe.call_count, 3)
+        self.assertEqual(wait_for_prompt.call_count, 3)
+        w_events = [event for event in events if event[1] == "w"]
+        self.assertEqual(w_events, [("down", "w"), ("up", "w")])
 
 if __name__ == "__main__":
     unittest.main()
