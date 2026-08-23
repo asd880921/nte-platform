@@ -1,0 +1,13 @@
+{
+  "id": "999_nights",
+  "order": 3,
+  "name": "九百九十九夜",
+  "description": "請先進入九百九十九夜副本，再按 F1 開始鈕扣代幣循環。僅支援 1920 × 1080 前台模式。",
+  "emoji": "🌙",
+  "entry": "main.py",
+  "controls": [
+    { "key": "F1", "label": "開始循環" },
+    { "key": "F2", "label": "停止（回待機）" }
+  ],
+  "modes": ["foreground"]
+}
