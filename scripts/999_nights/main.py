@@ -75,8 +75,10 @@ UI_THRESHOLDS = {
     "mouse_click.png": 0.80,
 }
 
-# sample.png 內四個圖示的緊密裁切區域 (x, y, width, height)。
+# sample.png 固定由左至右：1 門口、2 Boss、3 折返路線 1、4 折返路線 2。
+# 下列為四個圖示的緊密裁切區域 (x, y, width, height)。
 # 只取圖示本體，不包含外圍圓圈，避免小地圖底圖影響辨識。
+SAMPLE_TARGETS = ("door", "boss", "route_1", "route_2")
 ICON_CROPS = {
     "door": (63, 36, 34, 57),
     "boss": (190, 37, 54, 53),
@@ -86,10 +88,10 @@ ICON_CROPS = {
 
 TARGET_LABELS = {
     "campfire": "火堆",
-    "door": "門口",
-    "boss": "Boss 中心",
-    "route_1": "折返路線 1",
-    "route_2": "折返路線 2",
+    "door": "門口（Sample 1）",
+    "boss": "Boss 中心（Sample 2）",
+    "route_1": "折返路線 1（Sample 3）",
+    "route_2": "折返路線 2（Sample 4）",
 }
 
 _EXIT = threading.Event()

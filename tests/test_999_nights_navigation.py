@@ -28,6 +28,17 @@ class NavigationTests(unittest.TestCase):
     def setUp(self):
         NIGHTS._STOP_RUN.clear()
 
+    def test_sample_targets_are_fixed_from_left_to_right(self):
+        self.assertEqual(
+            NIGHTS.SAMPLE_TARGETS,
+            ("door", "boss", "route_1", "route_2"),
+        )
+        crop_x_positions = [
+            NIGHTS.ICON_CROPS[target][0]
+            for target in NIGHTS.SAMPLE_TARGETS
+        ]
+        self.assertEqual(crop_x_positions, sorted(crop_x_positions))
+
     def test_regular_movement_holds_w_for_the_whole_path(self):
         observations = iter(
             [
