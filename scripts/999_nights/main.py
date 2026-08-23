@@ -50,7 +50,7 @@ DODGE_W_LEAD_IN_SECONDS = 0.03
 DODGE_CHORD_SECONDS = 0.08
 DODGE_MARKER_REACH_DISTANCE = 90.0
 DODGE_ARROW_STABILITY_DISTANCE = 8.0
-MARKER_CROSS_SECONDS = 0.25
+MARKER_CROSS_SECONDS = 0.30
 CAMPFIRE_BACK_AWAY_SECONDS = 0.75
 ARRIVAL_DISTANCE = 17.0
 CAMPFIRE_ARRIVAL_DISTANCE = 8.0
@@ -704,6 +704,11 @@ def click_window_at(hwnd, x, y):
     win32api.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 
 
+def back_away_from_campfire():
+    log_step("◀", f"退離火堆 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (S)")
+    hold_key_for("s", CAMPFIRE_BACK_AWAY_SECONDS)
+
+
 def rest_and_refresh(hwnd):
     log_step("◆", "靠近火堆，等待互動提示")
     prompt = wait_for_ui(hwnd, "press_f.png", timeout=8.0)
@@ -712,16 +717,27 @@ def rest_and_refresh(hwnd):
         navigate_to(hwnd, "campfire")
         prompt = wait_for_ui(hwnd, "press_f.png")
 
-    log_step("▸", "按 F 進入休息")
-    tap_key("f", 0.5)
-    log_step("⋯", "等待『稍作休息』按鈕")
-    button = wait_for_ui(hwnd, "mouse_click.png")
+    while True:
+        log_step("▸", "按 F 進入休息")
+        tap_key("f", 0.5)
+        log_step("⋯", "等待『稍作休息』按鈕")
+        button = wait_for_ui(hwnd, "mouse_click.png", timeout=2.0)
+        if button is not None:
+            break
+
+        log("    2 秒內未看到休息按鈕，後退並重新確認 F 提示")
+        back_away_from_campfire()
+        prompt = wait_for_ui(hwnd, "press_f.png", timeout=2.0)
+        if prompt is None:
+            log("    後退後仍未看到 F 提示，重新校正火堆位置")
+            navigate_to(hwnd, "campfire")
+            wait_for_ui(hwnd, "press_f.png")
+
     click_window_at(hwnd, *button)
     sleep_check(0.5)
     log_step("▸", "按 ESC 關閉休息畫面")
     tap_key("esc", 0.5)
-    log_step("◀", f"退離火堆 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (S)")
-    hold_key_for("s", CAMPFIRE_BACK_AWAY_SECONDS)
+    back_away_from_campfire()
     log_step("▸", "短按 W 恢復角色正面箭頭")
     hold_key_for("w", TURN_PROBE_TAP_SECONDS)
     sleep_check(TURN_SETTLE_SECONDS)
@@ -732,7 +748,7 @@ def run_dodge_loop(hwnd):
     target = "route_1"
     log_step("⏱", f"開始 {DODGE_DURATION_SECONDS:.0f} 秒折返閃避")
     while time.monotonic() < deadline:
-        reached = navigate_to(hwnd, target, dodge=True, deadline=deadline)
+        reached = navigate_to(hwnd, target, dodge=True)
         if not reached:
             break
         target = "route_2" if target == "route_1" else "route_1"

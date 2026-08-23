@@ -267,7 +267,22 @@ class NavigationTests(unittest.TestCase):
         ):
             NIGHTS.navigate_to(1, "door")
 
-        self.assertIn(0.25, sleeps)
+        self.assertIn(0.30, sleeps)
+
+    def test_dodge_loop_finishes_current_route_after_sixty_seconds(self):
+        navigate = mock.Mock(return_value=True)
+        with (
+            mock.patch.object(
+                NIGHTS.time,
+                "monotonic",
+                side_effect=(0.0, 59.0, 61.0),
+            ),
+            mock.patch.object(NIGHTS, "navigate_to", navigate),
+            mock.patch.object(NIGHTS, "release_movement_keys"),
+        ):
+            NIGHTS.run_dodge_loop(1)
+
+        navigate.assert_called_once_with(1, "route_1", dodge=True)
 
     def test_rest_backs_away_then_restores_forward_arrow_direction(self):
         events = []
@@ -300,6 +315,48 @@ class NavigationTests(unittest.TestCase):
         self.assertIn(("sleep", 0.75), events[back_down:back_up])
         self.assertIn(("sleep", 0.025), events[forward_down:forward_up])
         self.assertLess(back_up, forward_down)
+
+    def test_rest_backs_up_and_retries_f_when_button_does_not_appear(self):
+        events = []
+        keyboard = mock.Mock()
+        keyboard.press.side_effect = lambda key: events.append(("down", key))
+        keyboard.release.side_effect = lambda key: events.append(("up", key))
+        keyboard.press_and_release.side_effect = (
+            lambda key: events.append(("tap", key))
+        )
+        wait_for_ui = mock.Mock(
+            side_effect=((10, 10), None, (11, 11), (20, 20))
+        )
+        with (
+            mock.patch.object(NIGHTS, "wait_for_ui", wait_for_ui),
+            mock.patch.object(NIGHTS, "click_window_at"),
+            mock.patch.object(
+                NIGHTS,
+                "sleep_check",
+                side_effect=lambda seconds: events.append(("sleep", seconds)),
+            ),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            NIGHTS.rest_and_refresh(1)
+
+        self.assertEqual(
+            wait_for_ui.call_args_list[:4],
+            [
+                mock.call(1, "press_f.png", timeout=8.0),
+                mock.call(1, "mouse_click.png", timeout=2.0),
+                mock.call(1, "press_f.png", timeout=2.0),
+                mock.call(1, "mouse_click.png", timeout=2.0),
+            ],
+        )
+        f_taps = [
+            index
+            for index, event in enumerate(events)
+            if event == ("tap", "f")
+        ]
+        first_back = events.index(("down", "s"))
+        self.assertEqual(len(f_taps), 2)
+        self.assertLess(f_taps[0], first_back)
+        self.assertLess(first_back, f_taps[1])
 
     def test_walking_stops_before_correcting_a_new_heading_error(self):
         events = []
