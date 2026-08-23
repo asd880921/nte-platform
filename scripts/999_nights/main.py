@@ -44,8 +44,9 @@ VK_F2 = 0x71
 POLL_INTERVAL = 0.12
 MOVE_STEP_SECONDS = 0.18
 CAMPFIRE_PROMPT_POLL_SECONDS = 0.015
-DODGE_SETTLE_SECONDS = 0.7
+DODGE_SETTLE_SECONDS = 0.35
 DODGE_DURATION_SECONDS = 60.0
+DODGE_ROUTE_LOST_TIMEOUT = 2.0
 DODGE_W_LEAD_IN_SECONDS = 0.03
 DODGE_CHORD_SECONDS = 0.08
 DODGE_MARKER_REACH_DISTANCE = 90.0
@@ -510,7 +511,13 @@ def target_distance(pose, target):
     return math.hypot(target[0] - pose[0], target[1] - pose[1])
 
 
-def navigate_to(hwnd, target_name, dodge=False, deadline=None):
+def navigate_to(
+    hwnd,
+    target_name,
+    dodge=False,
+    deadline=None,
+    target_lost_timeout=None,
+):
     label = TARGET_LABELS[target_name]
     mode = "閃避移動" if dodge else "移動"
     arrival_distance = (
@@ -526,6 +533,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
     last_distance = None
     last_target = None
     last_pose = None
+    target_lost_since = None
     lost_count = 0
     last_status = 0.0
     walking = False
@@ -564,6 +572,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
             pose, target, confidence = observe_target(hwnd, target_name)
             if pose is None:
                 release_w()
+                target_lost_since = None
                 sleep_check(POLL_INTERVAL)
                 continue
             if target is None:
@@ -623,6 +632,18 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                     )
                     return finish_marker(f"已抵達{label}（{reason}）")
                 dodge_just_performed = False
+                now = time.monotonic()
+                if target_lost_since is None:
+                    target_lost_since = now
+                elif (
+                    target_lost_timeout is not None
+                    and now - target_lost_since >= target_lost_timeout
+                ):
+                    log(
+                        f"    連續 {target_lost_timeout:.1f} 秒找不到{label}，"
+                        "啟動折返校正"
+                    )
+                    return False
                 if lost_count == TARGET_LOST_LIMIT:
                     log(
                         f"    …暫時找不到{label}（最高信心 {confidence:.2f}），"
@@ -632,6 +653,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                 continue
 
             lost_count = 0
+            target_lost_since = None
             campfire_occlusion_active = False
             distance = target_distance(pose, target)
             if distance <= arrival_distance:
@@ -754,9 +776,22 @@ def run_dodge_loop(hwnd):
     target = "route_1"
     log_step("⏱", f"開始 {DODGE_DURATION_SECONDS:.0f} 秒折返閃避")
     while time.monotonic() < deadline:
-        reached = navigate_to(hwnd, target, dodge=True)
-        if not reached:
-            break
+        while True:
+            reached = navigate_to(
+                hwnd,
+                target,
+                dodge=True,
+                target_lost_timeout=DODGE_ROUTE_LOST_TIMEOUT,
+            )
+            if reached:
+                break
+
+            log_step(
+                "↺",
+                f"找不到{TARGET_LABELS[target]}，先閃避移動至 Boss 校正",
+            )
+            navigate_to(hwnd, "boss", dodge=True)
+            log_step("↺", f"已抵達 Boss，重新尋找{TARGET_LABELS[target]}")
         target = "route_2" if target == "route_1" else "route_1"
     release_movement_keys()
     log_step("✓", "60 秒折返閃避結束")

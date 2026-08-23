@@ -306,8 +306,60 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(reached)
         self.assertEqual(observe.call_count, 3)
 
-    def test_dodge_interval_is_reduced_by_thirty_percent(self):
-        self.assertAlmostEqual(NIGHTS.DODGE_SETTLE_SECONDS, 0.7)
+    def test_dodge_interval_is_point_thirty_five_seconds(self):
+        self.assertAlmostEqual(NIGHTS.DODGE_SETTLE_SECONDS, 0.35)
+
+    def test_route_navigation_returns_for_fallback_after_two_seconds_lost(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), None, 0.40),
+                ((0.0, 0.0, 0.0), None, 0.40),
+            ]
+        )
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(
+                NIGHTS.time,
+                "monotonic",
+                side_effect=(10.0, 12.0),
+            ),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(
+                1,
+                "route_1",
+                dodge=True,
+                target_lost_timeout=2.0,
+            )
+
+        self.assertFalse(reached)
+
+    def test_route_navigation_ignores_brief_icon_loss(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), None, 0.40),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS.time, "monotonic", return_value=10.0),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(
+                1,
+                "route_1",
+                dodge=True,
+                target_lost_timeout=2.0,
+            )
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, 2)
 
     def test_marker_arrival_advances_for_shared_crossing_duration(self):
         observations = iter(
@@ -340,7 +392,44 @@ class NavigationTests(unittest.TestCase):
         ):
             NIGHTS.run_dodge_loop(1)
 
-        navigate.assert_called_once_with(1, "route_1", dodge=True)
+        navigate.assert_called_once_with(
+            1,
+            "route_1",
+            dodge=True,
+            target_lost_timeout=2.0,
+        )
+
+    def test_dodge_loop_returns_to_same_route_after_boss_fallback(self):
+        navigate = mock.Mock(side_effect=(False, True, True))
+        with (
+            mock.patch.object(
+                NIGHTS.time,
+                "monotonic",
+                side_effect=(0.0, 59.0, 61.0),
+            ),
+            mock.patch.object(NIGHTS, "navigate_to", navigate),
+            mock.patch.object(NIGHTS, "release_movement_keys"),
+        ):
+            NIGHTS.run_dodge_loop(1)
+
+        self.assertEqual(
+            navigate.call_args_list,
+            [
+                mock.call(
+                    1,
+                    "route_1",
+                    dodge=True,
+                    target_lost_timeout=2.0,
+                ),
+                mock.call(1, "boss", dodge=True),
+                mock.call(
+                    1,
+                    "route_1",
+                    dodge=True,
+                    target_lost_timeout=2.0,
+                ),
+            ],
+        )
 
     def test_rest_does_not_back_away_after_successful_click(self):
         events = []
