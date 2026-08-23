@@ -63,6 +63,7 @@ PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
 MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
+DODGE_ALIGNMENT_TOLERANCE = math.radians(6)
 TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
 TURN_PROBE_TAP_SECONDS = 0.025
 TURN_SETTLE_SECONDS = 0.05
@@ -517,6 +518,9 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
         if target_name == "campfire"
         else ARRIVAL_DISTANCE
     )
+    alignment_tolerance = (
+        DODGE_ALIGNMENT_TOLERANCE if dodge else MOVE_ALIGNMENT_TOLERANCE
+    )
     log_step("➜", f"{mode}至{label}")
     best_distance = float("inf")
     last_distance = None
@@ -649,7 +653,7 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
             last_target = target
             last_pose = pose
             heading_error = heading_error_to_target(pose, target)
-            if abs(heading_error) > MOVE_ALIGNMENT_TOLERANCE:
+            if abs(heading_error) > alignment_tolerance:
                 release_w()
                 dodge_just_performed = False
                 steer_toward(pose, target)

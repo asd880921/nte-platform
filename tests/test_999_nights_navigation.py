@@ -107,6 +107,64 @@ class NavigationTests(unittest.TestCase):
         horizontal_pixels = mouse_event.call_args.args[1]
         self.assertGreaterEqual(abs(horizontal_pixels), 300)
 
+    def test_dodge_allows_moderate_heading_error_without_turning(self):
+        observations = iter(
+            [
+                (
+                    (0.0, 0.0, math.radians(5)),
+                    (50.0, 0.0),
+                    0.68,
+                ),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+        perform_dodge = mock.Mock()
+        mouse_event = mock.Mock()
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(NIGHTS, "perform_dodge", perform_dodge),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+            mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event),
+        ):
+            NIGHTS.navigate_to(1, "route_1", dodge=True)
+
+        self.assertAlmostEqual(
+            math.degrees(NIGHTS.MOVE_ALIGNMENT_TOLERANCE),
+            3.0,
+        )
+        self.assertAlmostEqual(
+            math.degrees(NIGHTS.DODGE_ALIGNMENT_TOLERANCE),
+            6.0,
+        )
+        perform_dodge.assert_called_once_with()
+        mouse_event.assert_not_called()
+
+    def test_regular_navigation_still_corrects_moderate_heading_error(self):
+        observations = iter(
+            [
+                (
+                    (0.0, 0.0, math.radians(5)),
+                    (50.0, 0.0),
+                    0.68,
+                ),
+                ((0.0, 0.0, 0.0), (40.0, 0.0), 0.68),
+                ((0.0, 0.0, 0.0), (10.0, 0.0), 0.68),
+            ]
+        )
+        mouse_event = mock.Mock()
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+            mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event),
+        ):
+            NIGHTS.navigate_to(1, "door")
+
+        mouse_event.assert_called_once()
+
     def test_character_does_not_walk_until_arrow_is_aligned(self):
         events = []
         observations = iter(
