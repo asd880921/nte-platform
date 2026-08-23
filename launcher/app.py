@@ -3,7 +3,7 @@ NTE 自動化平台 - 啟動器 (pywebview + HTML/CSS)
 
 架構：
   - scripts/<id>/          每個腳本一個資料夾
-       ├─ main.py          統一入口 (以子行程執行，內部自帶 F1/F2 控制)
+       ├─ main.py          統一入口 (以子行程執行，從環境變數讀取快捷鍵)
        ├─ template/        該腳本專屬圖片
        └─ meta.json        顯示名稱、說明、圖示、控制鍵
   - launcher/web/          前端 (Apple 風格介面)
@@ -76,6 +76,77 @@ LOG_MAX = 400
 GITHUB_REPO = "asd880921/nte-platform"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 LATEST_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+FUNCTION_KEYS = tuple(f"F{i}" for i in range(1, 13))
+DEFAULT_HOTKEY_SETTINGS = {"start_key": "F1", "stop_key": "F2"}
+
+
+def _settings_path():
+    root = os.environ.get("LOCALAPPDATA") or _base_dir()
+    return os.path.join(root, "NTE-Platform", "settings.json")
+
+
+SETTINGS_PATH = _settings_path()
+
+
+def normalize_hotkey_settings(start_key, stop_key):
+    """驗證並正規化平台全域快捷鍵；開始與停止不得使用同一顆按鍵。"""
+    start = str(start_key or "").strip().upper()
+    stop = str(stop_key or "").strip().upper()
+    if start not in FUNCTION_KEYS or stop not in FUNCTION_KEYS:
+        raise ValueError("快捷鍵僅支援 F1 到 F12")
+    if start == stop:
+        raise ValueError("開始與停止快捷鍵不能相同")
+    return {"start_key": start, "stop_key": stop}
+
+
+def load_hotkey_settings(path=SETTINGS_PATH):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return normalize_hotkey_settings(
+            data.get("start_key"),
+            data.get("stop_key"),
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return dict(DEFAULT_HOTKEY_SETTINGS)
+
+
+def save_hotkey_settings(start_key, stop_key, path=SETTINGS_PATH):
+    settings = normalize_hotkey_settings(start_key, stop_key)
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    temporary = f"{path}.tmp"
+    try:
+        with open(temporary, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+    return settings
+
+
+def meta_with_hotkeys(meta, hotkeys):
+    """回傳前端顯示用 meta，不修改磁碟中的腳本描述。"""
+    rendered = dict(meta)
+    controls = []
+    for control in meta.get("controls", []):
+        item = dict(control)
+        action = item.get("action")
+        original_key = str(item.get("key", "")).upper()
+        if action == "start" or (not action and original_key == "F1"):
+            item["key"] = hotkeys["start_key"]
+        elif action == "stop" or (not action and original_key == "F2"):
+            item["key"] = hotkeys["stop_key"]
+        controls.append(item)
+    rendered["controls"] = controls
+    return rendered
 
 
 def _read_version():
@@ -202,7 +273,7 @@ class ScriptRunner:
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self, mode=None):
+    def start(self, mode=None, hotkeys=None):
         if self.running:
             return False, "腳本已在執行中"
         entry = self.meta.get("entry", "main.py")
@@ -213,9 +284,12 @@ class ScriptRunner:
         # 前端傳來的模式一律驗證過才用，不支援就退回該腳本的預設模式
         self.mode = mode if mode in self.meta["modes"] else self.meta["modes"][0]
 
+        hotkeys = hotkeys or DEFAULT_HOTKEY_SETTINGS
         self.logs.clear()
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1",
-                   NTE_INPUT_MODE=self.mode)
+                   NTE_INPUT_MODE=self.mode,
+                   NTE_START_KEY=hotkeys["start_key"],
+                   NTE_STOP_KEY=hotkeys["stop_key"])
 
         if FROZEN:
             # 視窗程式 (console=False) 下子行程 stdout 不可靠，
@@ -249,7 +323,7 @@ class ScriptRunner:
             )
             threading.Thread(target=self._pump_pipe, daemon=True).start()
 
-        # 怎麼按 F1、要不要切到遊戲，都由腳本的 [待機] 訊息負責交代，這裡不重複
+        # 怎麼按開始鍵、要不要切到遊戲，都由腳本的 [待機] 訊息負責交代，這裡不重複
         label = "後台" if self.mode == "background" else "前台"
         self._append(f"[啟動] 腳本已啟動（{label}模式），請稍候...")
         return True, "已啟動"
@@ -305,6 +379,7 @@ class Api:
 
     def __init__(self):
         self.runners = {}
+        self.hotkeys = load_hotkey_settings()
         self.updater = UpdateChecker()
         self.updater.start()
         self._load_scripts()
@@ -343,15 +418,40 @@ class Api:
     def list_scripts(self):
         self._load_scripts_if_new()
         return [
-            {**r.meta, "running": r.running, "mode": r.mode}
+            {
+                **meta_with_hotkeys(r.meta, self.hotkeys),
+                "running": r.running,
+                "mode": r.mode,
+            }
             for r in self.runners.values()
         ]
+
+    def get_hotkey_settings(self):
+        return {
+            **self.hotkeys,
+            "valid_keys": list(FUNCTION_KEYS),
+            "locked": any(r.running for r in self.runners.values()),
+        }
+
+    def save_hotkey_settings(self, start_key, stop_key):
+        if any(r.running for r in self.runners.values()):
+            return {
+                "ok": False,
+                "message": "請先停止執行中的腳本，再修改快捷鍵。",
+            }
+        try:
+            self.hotkeys = save_hotkey_settings(start_key, stop_key)
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+        except OSError:
+            return {"ok": False, "message": "無法儲存快捷鍵設定。"}
+        return {"ok": True, **self.hotkeys}
 
     def start_script(self, script_id, mode=None):
         r = self.runners.get(script_id)
         if not r:
             return {"ok": False, "message": "找不到該腳本"}
-        ok, msg = r.start(mode)
+        ok, msg = r.start(mode, self.hotkeys)
         return {"ok": ok, "message": msg, "mode": r.mode}
 
     def stop_script(self, script_id):

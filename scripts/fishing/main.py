@@ -20,7 +20,7 @@
 需要滑鼠點擊的腳本只能走前台 (這個遊戲吃不到訊息形式的滑鼠輸入)。
 
 遊戲循環 (見 run_loop)：
-  0. 按下 F1 起跑時先按一次 F 開場拋竿 (不然不會進到釣魚狀態)；
+  0. 按下開始快捷鍵起跑時先按一次 F 開場拋竿 (不然不會進到釣魚狀態)；
      每輪結尾那個 F 有它自己的作用，維持原樣
   1. 等到 trigger.png (咬竿提示) → 按 F 起竿
      等不到 (釣魚流程本身有變數，狀態會跟腳本對不上) → 跑一次「等 close.png」收尾
@@ -111,13 +111,25 @@ WAIT_LOG_INTERVAL = 5         # 等待中每隔幾秒回報一次 (避免洗版)
 TRACK_LOG_INTERVAL = 1.5      # 拉桿追蹤每隔幾秒回報一次
 STATS_EVERY = 10              # 每完成幾輪印一次統計
 
-VK_F1 = 0x70
-VK_F2 = 0x71
+FUNCTION_KEYS = tuple(f"F{i}" for i in range(1, 13))
+
+
+def _configured_function_key(name, default):
+    key = os.environ.get(name, default).strip().upper()
+    return key if key in FUNCTION_KEYS else default
+
+
+START_KEY = _configured_function_key("NTE_START_KEY", "F1")
+STOP_KEY = _configured_function_key("NTE_STOP_KEY", "F2")
+if STOP_KEY == START_KEY:
+    STOP_KEY = "F2" if START_KEY != "F2" else "F1"
+VK_START = 0x6F + int(START_KEY[1:])
+VK_STOP = 0x6F + int(STOP_KEY[1:])
 
 # 熱鍵旗標
 _EXIT = threading.Event()      # 整支腳本結束 (Ctrl+C)
-_START = threading.Event()     # F1：開始執行
-_STOP_RUN = threading.Event()  # F2：停止本次執行、回到待機
+_START = threading.Event()     # 使用者設定的快捷鍵：開始執行
+_STOP_RUN = threading.Event()  # 使用者設定的快捷鍵：停止並回到待機
 
 _round = 0                     # 已完成輪數 (跨停止/重啟保留)
 _fixed = 0                     # 自動修正次數：遊戲狀態卡住時腳本自行收尾重拋、讓循環接下去
@@ -152,41 +164,44 @@ def log_stats():
 
 
 class StopRun(Exception):
-    """使用者按 F2 要求停止本次執行 (回待機，不關腳本)。"""
+    """使用者按下停止快捷鍵，停止本次執行並回到待機。"""
 
 
 def _key_watcher():
-    """背景執行緒：持續偵測 F1 / F2，直到腳本結束。"""
+    """背景執行緒：持續偵測開始 / 停止快捷鍵，直到腳本結束。"""
     user32 = ctypes.windll.user32
     while not _EXIT.is_set():
-        if user32.GetAsyncKeyState(VK_F1) & 0x8000:
+        if user32.GetAsyncKeyState(VK_START) & 0x8000:
             _START.set()
-        if user32.GetAsyncKeyState(VK_F2) & 0x8000:
+        if user32.GetAsyncKeyState(VK_STOP) & 0x8000:
             _STOP_RUN.set()
         time.sleep(0.03)
 
 
 def check_stop():
-    """在流程各處呼叫；若已按 F2 則丟出 StopRun。"""
+    """在流程各處呼叫；若已按停止快捷鍵則丟出 StopRun。"""
     if _STOP_RUN.is_set():
         raise StopRun()
 
 
 def sleep_check(seconds):
-    """可被 F2 中斷的 delay。"""
+    """可被停止快捷鍵中斷的 delay。"""
     if _STOP_RUN.wait(seconds):
         raise StopRun()
 
 
 def wait_for_start():
-    """待機：清掉舊旗標，阻塞直到按下 F1。"""
+    """待機：清掉舊旗標，阻塞直到按下開始快捷鍵。"""
     _START.clear()
     _STOP_RUN.clear()
-    log("\n[待機] 按 F1 開始自動釣魚；執行中按 F2 停止回待機。")
+    log(f"\n[待機] 按 {START_KEY} 開始自動釣魚；執行中按 {STOP_KEY} 停止回待機。")
     if BACKGROUND:
-        log("       (後台模式不用切到遊戲；但 F1/F2 是全域熱鍵，在其他程式按到也會生效，請注意。)")
+        log(
+            f"       (後台模式不用切到遊戲；但 {START_KEY}/{STOP_KEY} 是全域熱鍵，"
+            "在其他程式按到也會生效，請注意。)"
+        )
     else:
-        log("       按下 F1 後會自動切到遊戲視窗，期間請不要操作鍵盤滑鼠。")
+        log(f"       按下 {START_KEY} 後會自動切到遊戲視窗，期間請不要操作鍵盤滑鼠。")
     while not _START.is_set():
         if _EXIT.is_set():
             raise KeyboardInterrupt()
@@ -194,7 +209,7 @@ def wait_for_start():
     # 開始前把旗標歸零，確保乾淨起跑
     _START.clear()
     _STOP_RUN.clear()
-    log("[F1] 開始執行")
+    log(f"[{START_KEY}] 開始執行")
 
 
 # ============ 找視窗 ============
@@ -229,7 +244,7 @@ def _force_foreground(hwnd):
     把 hwnd 搶到前景，回傳是否成功。
 
     Windows 只允許「擁有目前前景視窗」的執行緒指定新的前景視窗。腳本是獨立子行程，
-    按 F1 時前景是平台視窗 (屬於 launcher 行程)，直接呼叫 SetForegroundWindow 會被擋掉、
+    按開始快捷鍵時前景是平台視窗 (屬於 launcher 行程)，直接呼叫 SetForegroundWindow 會被擋掉、
     只閃一下工作列。這裡把自己的輸入佇列暫時附掛到前景視窗的執行緒上借到資格，用完卸掉；
     附掛不成再退回 SwitchToThisWindow (不受前景權限限制)。
     """
@@ -598,7 +613,7 @@ def run_loop(hwnd):
     global _round, _elapsed
     prepare_window(hwnd)
 
-    # F1 起跑時先幫玩家拋一次竿，才會進到釣魚狀態；
+    # 開始快捷鍵起跑時先幫玩家拋一次竿，才會進到釣魚狀態；
     # 之後每輪結尾那個 F 有它自己的作用 (接著下一輪)，維持原樣不動。
     log("[起跑] 先幫你拋竿，接著進入循環")
     press_key(hwnd, "f", "開場拋竿")
@@ -649,11 +664,14 @@ def main():
 
     try:
         while True:
-            wait_for_start()      # 待機直到 F1
+            wait_for_start()      # 待機直到開始快捷鍵
             try:
                 run_loop(hwnd)
             except StopRun:
-                log("[F2] 已停止，回到待機。再按 F1 會從頭開始 (統計保留)。")
+                log(
+                    f"[{STOP_KEY}] 已停止，回到待機。再按 {START_KEY} "
+                    "會從頭開始 (統計保留)。"
+                )
                 log_stats()
     except KeyboardInterrupt:
         log("\n[中止] Ctrl+C，關閉腳本。")

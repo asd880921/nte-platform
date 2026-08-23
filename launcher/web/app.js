@@ -8,6 +8,19 @@
   const cardTpl = document.getElementById("cardTpl");
   const refreshBtn = document.getElementById("refreshBtn");
 
+  const settingsBtn = document.getElementById("settingsBtn");
+  const settingsOverlay = document.getElementById("settingsOverlay");
+  const settingsClose = document.getElementById("settingsClose");
+  const settingsCancel = document.getElementById("settingsCancel");
+  const settingsForm = document.getElementById("settingsForm");
+  const settingsSave = document.getElementById("settingsSave");
+  const settingsStatus = document.getElementById("settingsStatus");
+  const functionKeyGrid = document.getElementById("functionKeyGrid");
+  const keyPickerLabel = document.getElementById("keyPickerLabel");
+  const startKeyPreview = document.getElementById("startKeyPreview");
+  const stopKeyPreview = document.getElementById("stopKeyPreview");
+  const assignmentRows = [...document.querySelectorAll(".assignment-row")];
+
   const dock = document.getElementById("dock");
   const dockHandle = document.getElementById("dockHandle");
   const dockName = document.getElementById("dockName");
@@ -17,6 +30,11 @@
 
   const cards = new Map(); // id -> { el, meta, running }
   let activeId = null;
+  let hotkeyOriginal = { start_key: "F1", stop_key: "F2" };
+  let hotkeyDraft = { ...hotkeyOriginal };
+  let hotkeyAction = "start";
+  let hotkeyLocked = false;
+  let hotkeySaving = false;
 
   // ---- 執行模式 (前台 / 後台) ----
   // 來源是 meta.json 的 modes 陣列 (後端已正規化，第一個為預設)。
@@ -261,6 +279,152 @@
     setTimeout(poll, 400);
   }
 
+  // ---- 快捷鍵設定 ----
+  function settingsMessage(text = "", kind = "") {
+    settingsStatus.textContent = text;
+    settingsStatus.classList.toggle("success", kind === "success");
+    settingsStatus.classList.toggle("error", kind === "error");
+  }
+
+  function hotkeyIsDirty() {
+    return hotkeyDraft.start_key !== hotkeyOriginal.start_key
+      || hotkeyDraft.stop_key !== hotkeyOriginal.stop_key;
+  }
+
+  function updateHotkeyUI() {
+    startKeyPreview.textContent = hotkeyDraft.start_key;
+    stopKeyPreview.textContent = hotkeyDraft.stop_key;
+    keyPickerLabel.textContent = hotkeyAction === "start"
+      ? "選擇開始按鍵" : "選擇停止按鍵";
+
+    assignmentRows.forEach((row) => {
+      const active = row.dataset.action === hotkeyAction;
+      row.classList.toggle("active", active);
+      row.setAttribute("aria-pressed", String(active));
+      row.disabled = hotkeyLocked;
+    });
+
+    const activeKey = hotkeyDraft[`${hotkeyAction}_key`];
+    const otherAction = hotkeyAction === "start" ? "stop" : "start";
+    const otherKey = hotkeyDraft[`${otherAction}_key`];
+    functionKeyGrid.querySelectorAll(".function-key").forEach((button) => {
+      const selected = button.dataset.key === activeKey;
+      const assignedOther = button.dataset.key === otherKey;
+      button.setAttribute("aria-checked", String(selected));
+      button.classList.toggle("assigned-other", assignedOther);
+      button.disabled = hotkeyLocked;
+      button.title = assignedOther ? "已指派給另一個動作；點選後交換" : "";
+    });
+
+    settingsSave.disabled = hotkeyLocked || hotkeySaving || !hotkeyIsDirty();
+  }
+
+  function renderFunctionKeys(keys) {
+    functionKeyGrid.innerHTML = "";
+    keys.forEach((key) => {
+      const button = document.createElement("button");
+      button.className = "function-key";
+      button.type = "button";
+      button.dataset.key = key;
+      button.textContent = key;
+      button.setAttribute("role", "radio");
+      button.addEventListener("click", () => {
+        if (hotkeyLocked) return;
+        const ownField = `${hotkeyAction}_key`;
+        const otherAction = hotkeyAction === "start" ? "stop" : "start";
+        const otherField = `${otherAction}_key`;
+        const previous = hotkeyDraft[ownField];
+        const swaps = hotkeyDraft[otherField] === key;
+        hotkeyDraft[ownField] = key;
+        if (swaps) hotkeyDraft[otherField] = previous;
+        settingsMessage(swaps ? "已交換開始與停止快捷鍵。" : "");
+        updateHotkeyUI();
+      });
+      functionKeyGrid.appendChild(button);
+    });
+  }
+
+  assignmentRows.forEach((row) => {
+    row.addEventListener("click", () => {
+      if (hotkeyLocked) return;
+      hotkeyAction = row.dataset.action;
+      settingsMessage();
+      updateHotkeyUI();
+    });
+  });
+
+  async function openSettings() {
+    aboutOverlay.classList.remove("open");
+    settingsOverlay.classList.add("open");
+    settingsMessage("正在讀取設定…");
+    try {
+      const info = await window.pywebview.api.get_hotkey_settings();
+      hotkeyOriginal = {
+        start_key: info.start_key || "F1",
+        stop_key: info.stop_key || "F2",
+      };
+      hotkeyDraft = { ...hotkeyOriginal };
+      hotkeyAction = "start";
+      hotkeyLocked = !!info.locked;
+      renderFunctionKeys(info.valid_keys || []);
+      if (hotkeyLocked) {
+        settingsMessage("請先停止執行中的腳本，再修改快捷鍵。", "error");
+      } else {
+        settingsMessage("選擇用途，再按下想指派的功能鍵。");
+      }
+      updateHotkeyUI();
+      requestAnimationFrame(() => assignmentRows[0].focus());
+    } catch (_) {
+      settingsMessage("無法讀取快捷鍵設定。", "error");
+    }
+  }
+
+  function closeSettings(restoreFocus = true) {
+    settingsOverlay.classList.remove("open");
+    if (restoreFocus) settingsBtn.focus();
+  }
+
+  settingsBtn.addEventListener("click", openSettings);
+  settingsClose.addEventListener("click", () => closeSettings());
+  settingsCancel.addEventListener("click", () => closeSettings());
+  settingsOverlay.addEventListener("click", (e) => {
+    if (e.target === settingsOverlay) closeSettings();
+  });
+
+  settingsForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (settingsSave.disabled) return;
+    hotkeySaving = true;
+    settingsMessage("正在儲存…");
+    updateHotkeyUI();
+    try {
+      const result = await window.pywebview.api.save_hotkey_settings(
+        hotkeyDraft.start_key,
+        hotkeyDraft.stop_key,
+      );
+      if (!result || !result.ok) {
+        settingsMessage(result && result.message
+          ? result.message : "無法儲存快捷鍵設定。", "error");
+        return;
+      }
+      hotkeyOriginal = {
+        start_key: result.start_key,
+        stop_key: result.stop_key,
+      };
+      hotkeyDraft = { ...hotkeyOriginal };
+      const selected = activeId;
+      const list = await window.pywebview.api.list_scripts();
+      renderScripts(list);
+      if (selected && cards.has(selected)) selectScript(selected, false);
+      settingsMessage("已儲存，之後啟動的腳本會使用新快捷鍵。", "success");
+    } catch (_) {
+      settingsMessage("無法儲存快捷鍵設定。", "error");
+    } finally {
+      hotkeySaving = false;
+      updateHotkeyUI();
+    }
+  });
+
   // ---- About 彈窗 ----
   const aboutBtn = document.getElementById("aboutBtn");
   const aboutOverlay = document.getElementById("aboutOverlay");
@@ -268,7 +432,10 @@
   const aboutGithub = document.getElementById("aboutGithub");
   const GITHUB_URL = "https://github.com/asd880921/nte-platform";
 
-  function openAbout() { aboutOverlay.classList.add("open"); }
+  function openAbout() {
+    settingsOverlay.classList.remove("open");
+    aboutOverlay.classList.add("open");
+  }
   function closeAbout() { aboutOverlay.classList.remove("open"); }
 
   aboutBtn.addEventListener("click", openAbout);
@@ -277,7 +444,9 @@
     if (e.target === aboutOverlay) closeAbout(); // 點卡片外的遮罩關閉
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && aboutOverlay.classList.contains("open")) closeAbout();
+    if (e.key !== "Escape") return;
+    if (settingsOverlay.classList.contains("open")) closeSettings();
+    else if (aboutOverlay.classList.contains("open")) closeAbout();
   });
   aboutGithub.addEventListener("click", (e) => {
     e.preventDefault();

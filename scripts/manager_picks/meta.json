@@ -2,12 +2,12 @@
   "id": "manager_picks",
   "order": 1,
   "name": "1-1 店長精選 (安魂曲)",
-  "description": "請先進入店長精選畫面，選擇「1-1」章節後，再按 F1 啟動腳本。",
+  "description": "請先進入店長精選畫面，選擇「1-1」章節後，再使用開始快捷鍵啟動腳本。",
   "emoji": "🍅",
   "entry": "main.py",
   "controls": [
-    { "key": "F1", "label": "開始循環" },
-    { "key": "F2", "label": "停止（回待機）" }
+    { "action": "start", "key": "F1", "label": "開始循環" },
+    { "action": "stop", "key": "F2", "label": "停止（回待機）" }
   ],
   "modes": ["foreground"]
 }
