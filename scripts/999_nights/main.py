@@ -43,6 +43,7 @@ VK_F2 = 0x71
 
 POLL_INTERVAL = 0.12
 MOVE_STEP_SECONDS = 0.18
+CAMPFIRE_PROMPT_POLL_SECONDS = 0.03
 DODGE_SETTLE_SECONDS = 1.0
 DODGE_DURATION_SECONDS = 60.0
 ARRIVAL_DISTANCE = 17.0
@@ -58,6 +59,7 @@ TURN_MAX_PIXELS = 360
 MINIMAP_ROI = {"left": 0.0, "top": 0.0, "right": 0.15, "bottom": 0.27}
 
 MATCH_THRESHOLD = 0.55
+FIRE_MATCH_THRESHOLD = 0.72
 UI_THRESHOLDS = {
     "press_f.png": 0.80,
     "mouse_click.png": 0.80,
@@ -263,6 +265,7 @@ def capture_minimap(hwnd):
 
 _UI_TEMPLATE_CACHE = {}
 _ICON_TEMPLATE_CACHE = None
+_FIRE_TEMPLATE_CACHE = None
 
 
 def _load_ui_template(name):
@@ -301,6 +304,23 @@ def wait_for_ui(hwnd, name, timeout=None):
         if timeout is not None and time.monotonic() - started >= timeout:
             return None
         sleep_check(POLL_INTERVAL)
+
+
+def campfire_prompt_visible(hwnd):
+    """火堆導航的真實停止條件：畫面一出現 F 互動提示就立刻回傳。"""
+    _, _, confidence = match_ui_template(capture_window(hwnd), "press_f.png")
+    return confidence >= UI_THRESHOLDS["press_f.png"]
+
+
+def wait_for_campfire_prompt(hwnd, timeout):
+    """角色持續前進時高頻檢查提示，避免下一個導航 frame 才放開 W。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        sleep_check(min(CAMPFIRE_PROMPT_POLL_SECONDS, remaining))
+        if campfire_prompt_visible(hwnd):
+            return True
+    return False
 
 
 def _load_icon_templates():
@@ -387,33 +407,33 @@ def find_player_pose(minimap):
 
 
 def find_campfire(minimap):
-    hsv = cv2.cvtColor(minimap, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(
-        hsv, np.array((140, 40, 80)), np.array((179, 255, 255))
-    )
-    # 火堆菱形的粉色區塊被白色線條分成數段，先合併後再算整體中心。
-    mask = cv2.morphologyEx(
-        mask, cv2.MORPH_CLOSE, np.ones((9, 9), dtype=np.uint8)
-    )
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    candidates = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        moments = cv2.moments(contour)
-        if area < 12 or not moments["m00"]:
-            continue
-        x = moments["m10"] / moments["m00"]
-        y = moments["m01"] / moments["m00"]
-        # 排除地圖左側另一個粉色圖示；火堆是上方的正菱形。
-        if (
-            x >= minimap.shape[1] * 0.18
-            and y >= minimap.shape[0] * 0.08
-        ):
-            candidates.append((y, -area, x, y))
-    if not candidates:
-        return None, 0.0
-    _, neg_area, x, y = min(candidates)
-    return (float(x), float(y)), float(-neg_area)
+    global _FIRE_TEMPLATE_CACHE
+    if _FIRE_TEMPLATE_CACHE is None:
+        path = os.path.join(TEMPLATE_DIR, "fire.png")
+        _FIRE_TEMPLATE_CACHE = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if _FIRE_TEMPLATE_CACHE is None:
+            raise FileNotFoundError(f"讀不到火堆樣板圖：{path}")
+
+    gray = cv2.cvtColor(minimap, cv2.COLOR_BGR2GRAY)
+    best = (0.0, None)
+    for scale in (0.70, 0.75, 0.80, 0.85, 0.90):
+        template = cv2.resize(
+            _FIRE_TEMPLATE_CACHE,
+            None,
+            fx=scale,
+            fy=scale,
+            interpolation=cv2.INTER_AREA,
+        )
+        height, width = template.shape[:2]
+        result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+        _, confidence, _, location = cv2.minMaxLoc(result)
+        if confidence > best[0]:
+            best = (
+                float(confidence),
+                (location[0] + width / 2, location[1] + height / 2),
+            )
+    confidence, center = best
+    return (center if confidence >= FIRE_MATCH_THRESHOLD else None), confidence
 
 
 def observe_target(hwnd, target_name):
@@ -474,6 +494,9 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
     try:
         while deadline is None or time.monotonic() < deadline:
             check_stop()
+            if target_name == "campfire" and campfire_prompt_visible(hwnd):
+                log_step("✓", "偵測到 F 互動提示，已抵達火堆")
+                return True
             pose, target, confidence = observe_target(hwnd, target_name)
             if pose is None:
                 release_w()
@@ -533,7 +556,12 @@ def navigate_to(hwnd, target_name, dodge=False, deadline=None):
                 sleep_check(min(DODGE_SETTLE_SECONDS, remaining))
             else:
                 hold_w()
-                sleep_check(MOVE_STEP_SECONDS)
+                if target_name == "campfire":
+                    if wait_for_campfire_prompt(hwnd, MOVE_STEP_SECONDS):
+                        log_step("✓", "偵測到 F 互動提示，已抵達火堆")
+                        return True
+                else:
+                    sleep_check(MOVE_STEP_SECONDS)
         return False
     finally:
         release_w()

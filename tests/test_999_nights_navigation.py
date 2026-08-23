@@ -59,26 +59,33 @@ class NavigationTests(unittest.TestCase):
         horizontal_pixels = mouse_event.call_args.args[1]
         self.assertGreaterEqual(abs(horizontal_pixels), 300)
 
-    def test_campfire_requires_a_closer_approach(self):
+    def test_campfire_stops_as_soon_as_interaction_prompt_appears(self):
         observations = iter(
             [
-                ((0.0, 0.0, 0.0), (16.0, 0.0), 1.0),
-                ((0.0, 0.0, 0.0), (22.0, 0.0), 1.0),
+                ((0.0, 0.0, 0.0), (40.0, 0.0), 1.0),
+                ((0.0, 0.0, 0.0), (20.0, 0.0), 1.0),
                 ((0.0, 0.0, 0.0), (7.0, 0.0), 1.0),
             ]
         )
         observe = mock.Mock(side_effect=observations)
+        prompt_visible = mock.Mock(side_effect=(False, True))
         keyboard = mock.Mock()
         with (
             mock.patch.object(NIGHTS, "observe_target", observe),
             mock.patch.object(NIGHTS, "steer_toward"),
             mock.patch.object(NIGHTS, "sleep_check"),
             mock.patch.object(NIGHTS, "keyboard", keyboard),
+            mock.patch.object(
+                NIGHTS,
+                "campfire_prompt_visible",
+                prompt_visible,
+                create=True,
+            ),
         ):
             NIGHTS.navigate_to(1, "campfire")
 
-        self.assertEqual(observe.call_count, 3)
-
+        self.assertEqual(prompt_visible.call_count, 2)
+        self.assertEqual(observe.call_count, 1)
 
 if __name__ == "__main__":
     unittest.main()
