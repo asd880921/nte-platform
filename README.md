@@ -127,7 +127,7 @@
 
 1. 參考下圖在赤龍古堡地圖放置四個標記。
 
-![九百九十九夜地圖標記位置](assets/preview-999-1.png)
+![九百九十九夜地圖標記位置](assets/preview-999nights-1.png)
 
 ![九百九十九夜地圖標記圖示](scripts/999_nights/template/sample.png)
 
