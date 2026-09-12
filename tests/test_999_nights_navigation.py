@@ -606,5 +606,146 @@ class NavigationTests(unittest.TestCase):
         w_events = [event for event in events if event[1] == "w"]
         self.assertEqual(w_events, [("down", "w"), ("up", "w")])
 
+    def test_large_right_hand_error_turns_left_instead(self):
+        mouse_event = mock.Mock()
+        with mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event):
+            NIGHTS.steer_toward((0.0, 0.0, 0.0), (0.0, 100.0))
+
+        self.assertLess(mouse_event.call_args.args[1], 0)
+
+    def test_small_right_hand_error_still_turns_right(self):
+        mouse_event = mock.Mock()
+        error = NIGHTS.RIGHT_TURN_MAX_ERROR * 0.5
+        target = (math.cos(error) * 100.0, math.sin(error) * 100.0)
+        with mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event):
+            NIGHTS.steer_toward((0.0, 0.0, 0.0), target)
+
+        self.assertGreater(mouse_event.call_args.args[1], 0)
+
+    def test_campfire_navigation_gives_up_after_the_lost_limit(self):
+        pose = (0.0, 0.0, 0.0)
+        observe = mock.Mock(return_value=(pose, None, 0.20))
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "campfire_prompt_visible", return_value=False),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(
+                1, "campfire", target_lost_limit=NIGHTS.CAMPFIRE_LOST_LIMIT
+            )
+
+        self.assertFalse(reached)
+        self.assertEqual(observe.call_count, NIGHTS.CAMPFIRE_LOST_LIMIT)
+
+    def test_rest_backs_away_only_once_before_searching_again(self):
+        ui_results = iter(
+            [
+                (10, 10),   # first press_f prompt
+                None,       # no rest button
+                (10, 10),   # press_f still visible after backing away
+                None,       # still no rest button
+                (10, 10),   # press_f prompt after re-navigating
+                (20, 20),   # rest button
+            ]
+        )
+        back_away = mock.Mock()
+        navigate = mock.Mock(return_value=True)
+        with (
+            mock.patch.object(NIGHTS, "wait_for_ui", side_effect=ui_results),
+            mock.patch.object(NIGHTS, "back_away_from_campfire", back_away),
+            mock.patch.object(NIGHTS, "navigate_to_campfire", navigate),
+            mock.patch.object(NIGHTS, "click_window_at"),
+            mock.patch.object(NIGHTS, "tap_key"),
+            mock.patch.object(NIGHTS, "hold_key_for"),
+            mock.patch.object(NIGHTS, "sleep_check"),
+        ):
+            NIGHTS.rest_and_refresh(1)
+
+        self.assertEqual(back_away.call_count, 1)
+        self.assertEqual(navigate.call_count, 1)
+
+    def test_campfire_helper_runs_to_the_door_before_retrying(self):
+        calls = []
+
+        def fake_navigate(_hwnd, target_name, **kwargs):
+            calls.append(target_name)
+            if target_name == "campfire":
+                return calls.count("campfire") >= 2
+            return True
+
+        with mock.patch.object(NIGHTS, "navigate_to", side_effect=fake_navigate):
+            NIGHTS.navigate_to_campfire(1)
+
+        self.assertEqual(calls, ["campfire", "door", "campfire"])
+
+
+    def test_navigation_reports_stuck_when_distance_stops_changing(self):
+        observe = mock.Mock(return_value=((0.0, 0.0, 0.0), (57.1, 0.0), 1.0))
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            result = NIGHTS.navigate_to(
+                1, "door", stuck_limit=NIGHTS.DOOR_STUCK_LIMIT
+            )
+
+        self.assertIs(result, NIGHTS.NAVIGATION_STUCK)
+        self.assertEqual(observe.call_count, NIGHTS.DOOR_STUCK_LIMIT + 1)
+
+    def test_navigation_does_not_report_stuck_while_still_approaching(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (57.0 - step * 3.0, 0.0), 1.0)
+                for step in range(20)
+            ]
+        )
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            result = NIGHTS.navigate_to(
+                1, "door", stuck_limit=NIGHTS.DOOR_STUCK_LIMIT
+            )
+
+        self.assertIs(result, True)
+
+    def test_door_retry_sidesteps_left_then_gives_up(self):
+        keys = []
+        navigate = mock.Mock(return_value=NIGHTS.NAVIGATION_STUCK)
+        with (
+            mock.patch.object(NIGHTS, "navigate_to", navigate),
+            mock.patch.object(
+                NIGHTS,
+                "hold_key_for",
+                side_effect=lambda key, seconds: keys.append(key),
+            ),
+        ):
+            NIGHTS.run_to_door_for_retry(1)
+
+        self.assertEqual(keys, ["a"] * NIGHTS.DOOR_STUCK_SIDESTEP_LIMIT)
+        self.assertEqual(navigate.call_count, NIGHTS.DOOR_STUCK_SIDESTEP_LIMIT + 1)
+
+    def test_door_retry_stops_as_soon_as_the_door_is_reached(self):
+        navigate = mock.Mock(side_effect=[NIGHTS.NAVIGATION_STUCK, True])
+        hold_key_for = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "navigate_to", navigate),
+            mock.patch.object(NIGHTS, "hold_key_for", hold_key_for),
+        ):
+            NIGHTS.run_to_door_for_retry(1)
+
+        self.assertEqual(hold_key_for.call_count, 1)
+        self.assertEqual(navigate.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

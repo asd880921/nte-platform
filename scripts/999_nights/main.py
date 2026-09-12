@@ -75,6 +75,10 @@ ICON_OCCLUSION_DISTANCE = 34.0
 PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
+CAMPFIRE_LOST_LIMIT = 25
+STUCK_DISTANCE_TOLERANCE = 1.0
+DOOR_STUCK_LIMIT = 5
+DOOR_STUCK_SIDESTEP_LIMIT = 2
 MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
 DODGE_ALIGNMENT_TOLERANCE = math.radians(6)
 TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
@@ -82,6 +86,7 @@ TURN_PROBE_TAP_SECONDS = 0.025
 TURN_SETTLE_SECONDS = 0.05
 TURN_PIXELS_PER_RADIAN = 240
 TURN_MAX_PIXELS = 360
+RIGHT_TURN_MAX_ERROR = math.radians(27)
 
 # 以 1920x1080 遊戲 client area 為基準，只讀左上小地圖區域。
 MINIMAP_ROI = {"left": 0.0, "top": 0.0, "right": 0.15, "bottom": 0.27}
@@ -154,6 +159,7 @@ def release_movement_keys():
     """任何中止或例外都確保不留下按住的移動鍵。"""
     keyboard.release("w")
     keyboard.release("s")
+    keyboard.release("a")
     keyboard.release("shift")
 
 
@@ -520,7 +526,11 @@ def steer_toward(pose, target):
     error = heading_error_to_target(pose, target)
     if abs(error) <= TURN_DEAD_ZONE:
         return error
-    pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, error * TURN_PIXELS_PER_RADIAN)))
+    turn = error
+    if turn > RIGHT_TURN_MAX_ERROR:
+        # 右轉容易被障礙物卡住：只有小角度微調允許往右，其餘一律繞左邊轉。
+        turn -= 2 * math.pi
+    pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, turn * TURN_PIXELS_PER_RADIAN)))
     win32api.mouse_event(MOUSEEVENTF_MOVE, pixels, 0, 0, 0)
     return error
 
@@ -529,12 +539,18 @@ def target_distance(pose, target):
     return math.hypot(target[0] - pose[0], target[1] - pose[1])
 
 
+# navigate_to 卡住時的回傳值；只有傳入 stuck_limit 的呼叫端會拿到。
+NAVIGATION_STUCK = "stuck"
+
+
 def navigate_to(
     hwnd,
     target_name,
     dodge=False,
     deadline=None,
     target_lost_timeout=None,
+    target_lost_limit=None,
+    stuck_limit=None,
 ):
     label = TARGET_LABELS[target_name]
     mode = "閃避移動" if dodge else "移動"
@@ -555,6 +571,8 @@ def navigate_to(
     lost_count = 0
     last_status = 0.0
     walking = False
+    stuck_count = 0
+    stuck_distance = None
     dodge_just_performed = False
     campfire_occlusion_active = False
 
@@ -662,6 +680,15 @@ def navigate_to(
                         "啟動折返校正"
                     )
                     return False
+                if (
+                    target_lost_limit is not None
+                    and lost_count >= target_lost_limit
+                ):
+                    log(
+                        f"    連續 {lost_count} 次找不到{label}"
+                        f"（最高信心 {confidence:.2f}），放棄本次尋找"
+                    )
+                    return False
                 if lost_count == TARGET_LOST_LIMIT:
                     log(
                         f"    …暫時找不到{label}（最高信心 {confidence:.2f}），"
@@ -716,6 +743,21 @@ def navigate_to(
                 )
                 sleep_check(min(DODGE_SETTLE_SECONDS, remaining))
             else:
+                if (
+                    stuck_distance is None
+                    or abs(distance - stuck_distance)
+                    > STUCK_DISTANCE_TOLERANCE
+                ):
+                    stuck_distance = distance
+                    stuck_count = 0
+                else:
+                    stuck_count += 1
+                    if stuck_limit is not None and stuck_count >= stuck_limit:
+                        log(
+                            f"    連續 {stuck_count} 次距離{label}停在 "
+                            f"{distance:.1f}px，判定被地形卡住"
+                        )
+                        return NAVIGATION_STUCK
                 hold_w()
                 if target_name == "campfire":
                     if wait_for_campfire_prompt(hwnd, MOVE_STEP_SECONDS):
@@ -729,6 +771,35 @@ def navigate_to(
         if dodge:
             # 若 Shift 送出期間中止，也確保不會留下按鍵狀態。
             keyboard.release("shift")
+
+
+def run_to_door_for_retry(hwnd):
+    """往門口換位置的途中可能被地形卡住，往左側移一段後再試。"""
+    sidesteps = 0
+    while True:
+        result = navigate_to(hwnd, "door", stuck_limit=DOOR_STUCK_LIMIT)
+        if result is not NAVIGATION_STUCK:
+            return
+        if sidesteps >= DOOR_STUCK_SIDESTEP_LIMIT:
+            log("    左側移後仍被卡住，直接回到尋找火堆")
+            return
+        sidesteps += 1
+        log_step(
+            "◀",
+            f"往門口被卡住，往左移動 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (A)",
+        )
+        hold_key_for("a", CAMPFIRE_BACK_AWAY_SECONDS)
+
+
+def navigate_to_campfire(hwnd):
+    """火堆圖示可能被其他圖示疊住而找不到；先跑到門口換個位置再重找。"""
+    while True:
+        if navigate_to(
+            hwnd, "campfire", target_lost_limit=CAMPFIRE_LOST_LIMIT
+        ):
+            return True
+        log_step("↺", "找不到火堆，先前往門口再重新尋找")
+        run_to_door_for_retry(hwnd)
 
 
 def tap_key(key, settle=0.0):
@@ -758,7 +829,7 @@ def rest_and_refresh(hwnd):
     prompt = wait_for_ui(hwnd, "press_f.png", timeout=8.0)
     if prompt is None:
         log("    未看到 F 提示，重新校正火堆位置")
-        navigate_to(hwnd, "campfire")
+        navigate_to_campfire(hwnd)
         prompt = wait_for_ui(hwnd, "press_f.png")
 
     used_back_away_fallback = False
@@ -770,13 +841,19 @@ def rest_and_refresh(hwnd):
         if button is not None:
             break
 
+        if used_back_away_fallback:
+            log("    後退後再按 F 仍沒有休息按鈕，直接退回尋找火堆")
+            navigate_to_campfire(hwnd)
+            wait_for_ui(hwnd, "press_f.png")
+            continue
+
         log("    2 秒內未看到休息按鈕，後退並重新確認 F 提示")
         back_away_from_campfire()
         used_back_away_fallback = True
         prompt = wait_for_ui(hwnd, "press_f.png", timeout=2.0)
         if prompt is None:
             log("    後退後仍未看到 F 提示，重新校正火堆位置")
-            navigate_to(hwnd, "campfire")
+            navigate_to_campfire(hwnd)
             wait_for_ui(hwnd, "press_f.png")
 
     click_window_at(hwnd, *button)
@@ -819,7 +896,7 @@ def run_loop(hwnd):
     global _round
     while True:
         log(f"\n===== 第 {_round + 1} 輪開始 =====")
-        navigate_to(hwnd, "campfire")
+        navigate_to_campfire(hwnd)
         rest_and_refresh(hwnd)
         navigate_to(hwnd, "door")
         navigate_to(hwnd, "boss")
