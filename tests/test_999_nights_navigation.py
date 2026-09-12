@@ -2,6 +2,7 @@ import importlib.util
 import math
 import os
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -682,70 +683,92 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(calls, ["campfire", "door", "campfire"])
 
 
-    def test_navigation_reports_stuck_when_distance_stops_changing(self):
-        observe = mock.Mock(return_value=((0.0, 0.0, 0.0), (57.1, 0.0), 1.0))
-        keyboard = mock.Mock()
-        with (
-            mock.patch.object(NIGHTS, "observe_target", observe),
-            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
-            mock.patch.object(NIGHTS, "sleep_check"),
-            mock.patch.object(NIGHTS, "keyboard", keyboard),
-        ):
-            result = NIGHTS.navigate_to(
-                1, "door", stuck_limit=NIGHTS.DOOR_STUCK_LIMIT
-            )
+    def test_route_step_uses_a_timeout_and_lost_limit(self):
+        navigate = mock.Mock(return_value=True)
+        with mock.patch.object(NIGHTS, "navigate_to", navigate):
+            NIGHTS.navigate_step(1, "door")
 
-        self.assertIs(result, NIGHTS.NAVIGATION_STUCK)
-        self.assertEqual(observe.call_count, NIGHTS.DOOR_STUCK_LIMIT + 1)
-
-    def test_navigation_does_not_report_stuck_while_still_approaching(self):
-        observations = iter(
-            [
-                ((0.0, 0.0, 0.0), (57.0 - step * 3.0, 0.0), 1.0)
-                for step in range(20)
-            ]
+        kwargs = navigate.call_args.kwargs
+        self.assertEqual(kwargs["target_lost_limit"], NIGHTS.ROUTE_LOST_LIMIT)
+        self.assertAlmostEqual(
+            kwargs["deadline"] - time.monotonic(),
+            NIGHTS.ROUTE_STEP_TIMEOUT,
+            delta=1.0,
         )
-        keyboard = mock.Mock()
-        with (
-            mock.patch.object(NIGHTS, "observe_target", side_effect=observations),
-            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
-            mock.patch.object(NIGHTS, "sleep_check"),
-            mock.patch.object(NIGHTS, "keyboard", keyboard),
-        ):
-            result = NIGHTS.navigate_to(
-                1, "door", stuck_limit=NIGHTS.DOOR_STUCK_LIMIT
-            )
 
-        self.assertIs(result, True)
+    def test_campfire_step_keeps_its_own_lost_limit(self):
+        navigate = mock.Mock(return_value=True)
+        with mock.patch.object(NIGHTS, "navigate_to", navigate):
+            NIGHTS.navigate_step(1, "campfire")
 
-    def test_door_retry_sidesteps_left_then_gives_up(self):
+        self.assertEqual(
+            navigate.call_args.kwargs["target_lost_limit"],
+            NIGHTS.CAMPFIRE_LOST_LIMIT,
+        )
+
+    def test_failed_step_backtracks_to_the_previous_marker(self):
+        calls = []
+
+        def fake_step(_hwnd, target_name):
+            calls.append(target_name)
+            return not (target_name == "boss" and calls.count("boss") == 1)
+
+        with mock.patch.object(NIGHTS, "navigate_step", side_effect=fake_step):
+            NIGHTS.navigate_with_backtrack(1, "boss", "route_1")
+
+        self.assertEqual(calls, ["boss", "route_1", "boss"])
+
+    def test_failed_backtrack_does_not_step_back_any_further(self):
+        calls = []
+
+        def fake_step(_hwnd, target_name):
+            # The door and the boss both fail once; backtracking must not
+            # cascade further back, it just retries the door.
+            calls.append(target_name)
+            return len(calls) >= 3
+
+        with mock.patch.object(NIGHTS, "navigate_step", side_effect=fake_step):
+            NIGHTS.navigate_with_backtrack(1, "door", "boss")
+
+        self.assertEqual(calls, ["door", "boss", "door"])
+
+    def test_campfire_backtrack_sidesteps_left_before_the_last_door_try(self):
+        calls = []
         keys = []
-        navigate = mock.Mock(return_value=NIGHTS.NAVIGATION_STUCK)
+
+        def fake_step(_hwnd, target_name):
+            calls.append(target_name)
+            if target_name == "door":
+                return False
+            return calls.count("campfire") >= 2
+
         with (
-            mock.patch.object(NIGHTS, "navigate_to", navigate),
+            mock.patch.object(NIGHTS, "navigate_step", side_effect=fake_step),
             mock.patch.object(
                 NIGHTS,
                 "hold_key_for",
-                side_effect=lambda key, seconds: keys.append(key),
+                side_effect=lambda key, seconds: keys.append((key, seconds)),
             ),
         ):
-            NIGHTS.run_to_door_for_retry(1)
+            NIGHTS.navigate_to_campfire(1)
 
-        self.assertEqual(keys, ["a"] * NIGHTS.DOOR_STUCK_SIDESTEP_LIMIT)
-        self.assertEqual(navigate.call_count, NIGHTS.DOOR_STUCK_SIDESTEP_LIMIT + 1)
+        self.assertEqual(calls, ["campfire", "door", "door", "campfire"])
+        self.assertEqual(keys, [("a", NIGHTS.CAMPFIRE_BACK_AWAY_SECONDS)])
 
-    def test_door_retry_stops_as_soon_as_the_door_is_reached(self):
-        navigate = mock.Mock(side_effect=[NIGHTS.NAVIGATION_STUCK, True])
-        hold_key_for = mock.Mock()
+    def test_dodge_loop_reports_the_last_reached_route_marker(self):
         with (
-            mock.patch.object(NIGHTS, "navigate_to", navigate),
-            mock.patch.object(NIGHTS, "hold_key_for", hold_key_for),
+            mock.patch.object(NIGHTS, "navigate_to", return_value=True),
+            mock.patch.object(NIGHTS, "release_movement_keys"),
+            mock.patch.object(NIGHTS, "DODGE_DURATION_SECONDS", 0.0),
         ):
-            NIGHTS.run_to_door_for_retry(1)
+            self.assertIsNone(NIGHTS.run_dodge_loop(1))
 
-        self.assertEqual(hold_key_for.call_count, 1)
-        self.assertEqual(navigate.call_count, 2)
-
+        with (
+            mock.patch.object(NIGHTS, "navigate_to", return_value=True),
+            mock.patch.object(NIGHTS, "release_movement_keys"),
+            mock.patch.object(NIGHTS, "DODGE_DURATION_SECONDS", 0.05),
+        ):
+            self.assertIn(NIGHTS.run_dodge_loop(1), ("route_1", "route_2"))
 
 if __name__ == "__main__":
     unittest.main()

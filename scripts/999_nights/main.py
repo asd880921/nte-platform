@@ -76,9 +76,8 @@ PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
 CAMPFIRE_LOST_LIMIT = 25
-STUCK_DISTANCE_TOLERANCE = 1.0
-DOOR_STUCK_LIMIT = 5
-DOOR_STUCK_SIDESTEP_LIMIT = 2
+ROUTE_LOST_LIMIT = 5
+ROUTE_STEP_TIMEOUT = 10.0
 MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
 DODGE_ALIGNMENT_TOLERANCE = math.radians(6)
 TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
@@ -539,10 +538,6 @@ def target_distance(pose, target):
     return math.hypot(target[0] - pose[0], target[1] - pose[1])
 
 
-# navigate_to 卡住時的回傳值；只有傳入 stuck_limit 的呼叫端會拿到。
-NAVIGATION_STUCK = "stuck"
-
-
 def navigate_to(
     hwnd,
     target_name,
@@ -550,7 +545,6 @@ def navigate_to(
     deadline=None,
     target_lost_timeout=None,
     target_lost_limit=None,
-    stuck_limit=None,
 ):
     label = TARGET_LABELS[target_name]
     mode = "閃避移動" if dodge else "移動"
@@ -571,8 +565,6 @@ def navigate_to(
     lost_count = 0
     last_status = 0.0
     walking = False
-    stuck_count = 0
-    stuck_distance = None
     dodge_just_performed = False
     campfire_occlusion_active = False
 
@@ -743,21 +735,6 @@ def navigate_to(
                 )
                 sleep_check(min(DODGE_SETTLE_SECONDS, remaining))
             else:
-                if (
-                    stuck_distance is None
-                    or abs(distance - stuck_distance)
-                    > STUCK_DISTANCE_TOLERANCE
-                ):
-                    stuck_distance = distance
-                    stuck_count = 0
-                else:
-                    stuck_count += 1
-                    if stuck_limit is not None and stuck_count >= stuck_limit:
-                        log(
-                            f"    連續 {stuck_count} 次距離{label}停在 "
-                            f"{distance:.1f}px，判定被地形卡住"
-                        )
-                        return NAVIGATION_STUCK
                 hold_w()
                 if target_name == "campfire":
                     if wait_for_campfire_prompt(hwnd, MOVE_STEP_SECONDS):
@@ -773,33 +750,65 @@ def navigate_to(
             keyboard.release("shift")
 
 
-def run_to_door_for_retry(hwnd):
-    """往門口換位置的途中可能被地形卡住，往左側移一段後再試。"""
-    sidesteps = 0
-    while True:
-        result = navigate_to(hwnd, "door", stuck_limit=DOOR_STUCK_LIMIT)
-        if result is not NAVIGATION_STUCK:
-            return
-        if sidesteps >= DOOR_STUCK_SIDESTEP_LIMIT:
-            log("    左側移後仍被卡住，直接回到尋找火堆")
-            return
-        sidesteps += 1
-        log_step(
-            "◀",
-            f"往門口被卡住，往左移動 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (A)",
+def navigate_step(hwnd, target_name):
+    """單次導航：圖示連續找不到或移動超時都回傳 False，交給返回機制處理。"""
+    lost_limit = (
+        CAMPFIRE_LOST_LIMIT if target_name == "campfire" else ROUTE_LOST_LIMIT
+    )
+    return bool(
+        navigate_to(
+            hwnd,
+            target_name,
+            deadline=time.monotonic() + ROUTE_STEP_TIMEOUT,
+            target_lost_limit=lost_limit,
         )
-        hold_key_for("a", CAMPFIRE_BACK_AWAY_SECONDS)
+    )
+
+
+def navigate_with_backtrack(hwnd, target_name, previous_name, backtrack=None):
+    """找不到目標或移動超時就退回上一個地標重新定位，再回頭找目標。
+
+    退回途中若同樣失敗，不再繼續往回退，直接結束這次退回並重新尋找目標。
+    """
+    label = TARGET_LABELS[target_name]
+    while True:
+        if navigate_step(hwnd, target_name):
+            return True
+        if previous_name is None:
+            log_step("↺", f"找不到{label}或移動超時，原地重新尋找")
+            continue
+        log_step(
+            "↺",
+            f"找不到{label}或移動超時，"
+            f"退回{TARGET_LABELS[previous_name]}重新定位",
+        )
+        if backtrack is None:
+            navigate_step(hwnd, previous_name)
+        else:
+            backtrack(hwnd)
+
+
+def backtrack_to_door(hwnd):
+    """火堆的退回目標是門口，而門口這段容易被地形卡住：
+
+    退回失敗就往左側移一次再試最後一次，仍失敗則結束退回回去找火堆。
+    """
+    if navigate_step(hwnd, "door"):
+        return
+    log_step(
+        "◀",
+        f"退回門口失敗，往左移動 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (A)",
+    )
+    hold_key_for("a", CAMPFIRE_BACK_AWAY_SECONDS)
+    if not navigate_step(hwnd, "door"):
+        log("    左移後仍找不到門口，結束退回並重新尋找火堆")
 
 
 def navigate_to_campfire(hwnd):
-    """火堆圖示可能被其他圖示疊住而找不到；先跑到門口換個位置再重找。"""
-    while True:
-        if navigate_to(
-            hwnd, "campfire", target_lost_limit=CAMPFIRE_LOST_LIMIT
-        ):
-            return True
-        log_step("↺", "找不到火堆，先前往門口再重新尋找")
-        run_to_door_for_retry(hwnd)
+    """火堆圖示可能被其他圖示疊住而找不到；退回門口換個位置再重找。"""
+    return navigate_with_backtrack(
+        hwnd, "campfire", "door", backtrack=backtrack_to_door
+    )
 
 
 def tap_key(key, settle=0.0):
@@ -869,6 +878,7 @@ def rest_and_refresh(hwnd):
 def run_dodge_loop(hwnd):
     deadline = time.monotonic() + DODGE_DURATION_SECONDS
     target = "route_1"
+    last_reached = None
     log_step("⏱", f"開始 {DODGE_DURATION_SECONDS:.0f} 秒折返閃避")
     while time.monotonic() < deadline:
         while True:
@@ -887,9 +897,11 @@ def run_dodge_loop(hwnd):
             )
             navigate_to(hwnd, "boss", dodge=True)
             log_step("↺", f"已抵達 Boss，重新尋找{TARGET_LABELS[target]}")
+        last_reached = target
         target = "route_2" if target == "route_1" else "route_1"
     release_movement_keys()
     log_step("✓", "60 秒折返閃避結束")
+    return last_reached
 
 
 def run_loop(hwnd):
@@ -898,11 +910,11 @@ def run_loop(hwnd):
         log(f"\n===== 第 {_round + 1} 輪開始 =====")
         navigate_to_campfire(hwnd)
         rest_and_refresh(hwnd)
-        navigate_to(hwnd, "door")
-        navigate_to(hwnd, "boss")
-        run_dodge_loop(hwnd)
-        navigate_to(hwnd, "boss")
-        navigate_to(hwnd, "door")
+        navigate_with_backtrack(hwnd, "door", "campfire")
+        navigate_with_backtrack(hwnd, "boss", "door")
+        last_route = run_dodge_loop(hwnd)
+        navigate_with_backtrack(hwnd, "boss", last_route)
+        navigate_with_backtrack(hwnd, "door", "boss")
         _round += 1
         log_step("✔", f"第 {_round} 輪完成，開始下一輪")
 
