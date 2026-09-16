@@ -75,6 +75,9 @@ ICON_OCCLUSION_DISTANCE = 34.0
 PASS_DISTANCE = 32.0
 PASS_MARGIN = 5.0
 TARGET_LOST_LIMIT = 8
+CAMPFIRE_LOST_LIMIT = 25
+ROUTE_LOST_LIMIT = 5
+ROUTE_STEP_TIMEOUT = 10.0
 MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
 DODGE_ALIGNMENT_TOLERANCE = math.radians(6)
 TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
@@ -82,6 +85,7 @@ TURN_PROBE_TAP_SECONDS = 0.025
 TURN_SETTLE_SECONDS = 0.05
 TURN_PIXELS_PER_RADIAN = 240
 TURN_MAX_PIXELS = 360
+RIGHT_TURN_MAX_ERROR = math.radians(27)
 
 # 以 1920x1080 遊戲 client area 為基準，只讀左上小地圖區域。
 MINIMAP_ROI = {"left": 0.0, "top": 0.0, "right": 0.15, "bottom": 0.27}
@@ -154,6 +158,7 @@ def release_movement_keys():
     """任何中止或例外都確保不留下按住的移動鍵。"""
     keyboard.release("w")
     keyboard.release("s")
+    keyboard.release("a")
     keyboard.release("shift")
 
 
@@ -516,11 +521,16 @@ def heading_error_to_target(pose, target):
     return normalize_angle(target_angle - heading)
 
 
-def steer_toward(pose, target):
+def steer_toward(pose, target, prefer_left=False):
     error = heading_error_to_target(pose, target)
     if abs(error) <= TURN_DEAD_ZONE:
         return error
-    pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, error * TURN_PIXELS_PER_RADIAN)))
+    turn = error
+    if prefer_left and turn > RIGHT_TURN_MAX_ERROR:
+        # 火堆↔門口這段右轉容易被障礙物卡住：
+        # 只有小角度微調允許往右，其餘一律繞左邊轉。
+        turn -= 2 * math.pi
+    pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, turn * TURN_PIXELS_PER_RADIAN)))
     win32api.mouse_event(MOUSEEVENTF_MOVE, pixels, 0, 0, 0)
     return error
 
@@ -535,6 +545,9 @@ def navigate_to(
     dodge=False,
     deadline=None,
     target_lost_timeout=None,
+    target_lost_limit=None,
+    move_timeout=None,
+    prefer_left=False,
 ):
     label = TARGET_LABELS[target_name]
     mode = "閃避移動" if dodge else "移動"
@@ -662,6 +675,15 @@ def navigate_to(
                         "啟動折返校正"
                     )
                     return False
+                if (
+                    target_lost_limit is not None
+                    and lost_count >= target_lost_limit
+                ):
+                    log(
+                        f"    連續 {lost_count} 次找不到{label}"
+                        f"（最高信心 {confidence:.2f}），放棄本次尋找"
+                    )
+                    return False
                 if lost_count == TARGET_LOST_LIMIT:
                     log(
                         f"    …暫時找不到{label}（最高信心 {confidence:.2f}），"
@@ -696,10 +718,14 @@ def navigate_to(
             if abs(heading_error) > alignment_tolerance:
                 release_w()
                 dodge_just_performed = False
-                steer_toward(pose, target)
+                steer_toward(pose, target, prefer_left=prefer_left)
                 hold_key_for("w", TURN_PROBE_TAP_SECONDS)
                 sleep_check(TURN_SETTLE_SECONDS)
                 continue
+
+            if deadline is None and move_timeout is not None:
+                # 轉向可能要繞一大圈，超時從第一次對準、真正開始移動才起算。
+                deadline = time.monotonic() + move_timeout
 
             now = time.monotonic()
             if now - last_status >= 3:
@@ -731,6 +757,78 @@ def navigate_to(
             keyboard.release("shift")
 
 
+def navigate_step(hwnd, target_name, prefer_left=False):
+    """單次導航：圖示連續找不到或移動超時都回傳 False，交給返回機制處理。"""
+    lost_limit = (
+        CAMPFIRE_LOST_LIMIT if target_name == "campfire" else ROUTE_LOST_LIMIT
+    )
+    return bool(
+        navigate_to(
+            hwnd,
+            target_name,
+            move_timeout=ROUTE_STEP_TIMEOUT,
+            target_lost_limit=lost_limit,
+            prefer_left=prefer_left,
+        )
+    )
+
+
+def navigate_with_backtrack(
+    hwnd,
+    target_name,
+    previous_name,
+    backtrack=None,
+    prefer_left=False,
+):
+    """找不到目標或移動超時就退回上一個地標重新定位，再回頭找目標。
+
+    退回途中若同樣失敗，不再繼續往回退，直接結束這次退回並重新尋找目標。
+    """
+    label = TARGET_LABELS[target_name]
+    while True:
+        if navigate_step(hwnd, target_name, prefer_left=prefer_left):
+            return True
+        if previous_name is None:
+            log_step("↺", f"找不到{label}或移動超時，原地重新尋找")
+            continue
+        log_step(
+            "↺",
+            f"找不到{label}或移動超時，"
+            f"退回{TARGET_LABELS[previous_name]}重新定位",
+        )
+        if backtrack is None:
+            navigate_step(hwnd, previous_name, prefer_left=prefer_left)
+        else:
+            backtrack(hwnd)
+
+
+def backtrack_to_door(hwnd):
+    """火堆的退回目標是門口，而門口這段容易被地形卡住：
+
+    退回失敗就往左側移一次再試最後一次，仍失敗則結束退回回去找火堆。
+    """
+    if navigate_step(hwnd, "door", prefer_left=True):
+        return
+    log_step(
+        "◀",
+        f"退回門口失敗，往左移動 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (A)",
+    )
+    hold_key_for("a", CAMPFIRE_BACK_AWAY_SECONDS)
+    if not navigate_step(hwnd, "door", prefer_left=True):
+        log("    左移後仍找不到門口，結束退回並重新尋找火堆")
+
+
+def navigate_to_campfire(hwnd):
+    """火堆圖示可能被其他圖示疊住而找不到；退回門口換個位置再重找。"""
+    return navigate_with_backtrack(
+        hwnd,
+        "campfire",
+        "door",
+        backtrack=backtrack_to_door,
+        prefer_left=True,
+    )
+
+
 def tap_key(key, settle=0.0):
     check_stop()
     keyboard.press_and_release(key)
@@ -758,7 +856,7 @@ def rest_and_refresh(hwnd):
     prompt = wait_for_ui(hwnd, "press_f.png", timeout=8.0)
     if prompt is None:
         log("    未看到 F 提示，重新校正火堆位置")
-        navigate_to(hwnd, "campfire")
+        navigate_to_campfire(hwnd)
         prompt = wait_for_ui(hwnd, "press_f.png")
 
     used_back_away_fallback = False
@@ -770,13 +868,19 @@ def rest_and_refresh(hwnd):
         if button is not None:
             break
 
+        if used_back_away_fallback:
+            log("    後退後再按 F 仍沒有休息按鈕，直接退回尋找火堆")
+            navigate_to_campfire(hwnd)
+            wait_for_ui(hwnd, "press_f.png")
+            continue
+
         log("    2 秒內未看到休息按鈕，後退並重新確認 F 提示")
         back_away_from_campfire()
         used_back_away_fallback = True
         prompt = wait_for_ui(hwnd, "press_f.png", timeout=2.0)
         if prompt is None:
             log("    後退後仍未看到 F 提示，重新校正火堆位置")
-            navigate_to(hwnd, "campfire")
+            navigate_to_campfire(hwnd)
             wait_for_ui(hwnd, "press_f.png")
 
     click_window_at(hwnd, *button)
@@ -792,6 +896,7 @@ def rest_and_refresh(hwnd):
 def run_dodge_loop(hwnd):
     deadline = time.monotonic() + DODGE_DURATION_SECONDS
     target = "route_1"
+    last_reached = None
     log_step("⏱", f"開始 {DODGE_DURATION_SECONDS:.0f} 秒折返閃避")
     while time.monotonic() < deadline:
         while True:
@@ -810,22 +915,24 @@ def run_dodge_loop(hwnd):
             )
             navigate_to(hwnd, "boss", dodge=True)
             log_step("↺", f"已抵達 Boss，重新尋找{TARGET_LABELS[target]}")
+        last_reached = target
         target = "route_2" if target == "route_1" else "route_1"
     release_movement_keys()
     log_step("✓", "60 秒折返閃避結束")
+    return last_reached
 
 
 def run_loop(hwnd):
     global _round
     while True:
         log(f"\n===== 第 {_round + 1} 輪開始 =====")
-        navigate_to(hwnd, "campfire")
+        navigate_to_campfire(hwnd)
         rest_and_refresh(hwnd)
-        navigate_to(hwnd, "door")
-        navigate_to(hwnd, "boss")
-        run_dodge_loop(hwnd)
-        navigate_to(hwnd, "boss")
-        navigate_to(hwnd, "door")
+        navigate_with_backtrack(hwnd, "door", "campfire", prefer_left=True)
+        navigate_with_backtrack(hwnd, "boss", "door")
+        last_route = run_dodge_loop(hwnd)
+        navigate_with_backtrack(hwnd, "boss", last_route)
+        navigate_with_backtrack(hwnd, "door", "boss")
         _round += 1
         log_step("✔", f"第 {_round} 輪完成，開始下一輪")
 
