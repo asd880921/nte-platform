@@ -521,13 +521,14 @@ def heading_error_to_target(pose, target):
     return normalize_angle(target_angle - heading)
 
 
-def steer_toward(pose, target):
+def steer_toward(pose, target, prefer_left=False):
     error = heading_error_to_target(pose, target)
     if abs(error) <= TURN_DEAD_ZONE:
         return error
     turn = error
-    if turn > RIGHT_TURN_MAX_ERROR:
-        # 右轉容易被障礙物卡住：只有小角度微調允許往右，其餘一律繞左邊轉。
+    if prefer_left and turn > RIGHT_TURN_MAX_ERROR:
+        # 火堆↔門口這段右轉容易被障礙物卡住：
+        # 只有小角度微調允許往右，其餘一律繞左邊轉。
         turn -= 2 * math.pi
     pixels = int(max(-TURN_MAX_PIXELS, min(TURN_MAX_PIXELS, turn * TURN_PIXELS_PER_RADIAN)))
     win32api.mouse_event(MOUSEEVENTF_MOVE, pixels, 0, 0, 0)
@@ -545,6 +546,8 @@ def navigate_to(
     deadline=None,
     target_lost_timeout=None,
     target_lost_limit=None,
+    move_timeout=None,
+    prefer_left=False,
 ):
     label = TARGET_LABELS[target_name]
     mode = "閃避移動" if dodge else "移動"
@@ -715,10 +718,14 @@ def navigate_to(
             if abs(heading_error) > alignment_tolerance:
                 release_w()
                 dodge_just_performed = False
-                steer_toward(pose, target)
+                steer_toward(pose, target, prefer_left=prefer_left)
                 hold_key_for("w", TURN_PROBE_TAP_SECONDS)
                 sleep_check(TURN_SETTLE_SECONDS)
                 continue
+
+            if deadline is None and move_timeout is not None:
+                # 轉向可能要繞一大圈，超時從第一次對準、真正開始移動才起算。
+                deadline = time.monotonic() + move_timeout
 
             now = time.monotonic()
             if now - last_status >= 3:
@@ -750,7 +757,7 @@ def navigate_to(
             keyboard.release("shift")
 
 
-def navigate_step(hwnd, target_name):
+def navigate_step(hwnd, target_name, prefer_left=False):
     """單次導航：圖示連續找不到或移動超時都回傳 False，交給返回機制處理。"""
     lost_limit = (
         CAMPFIRE_LOST_LIMIT if target_name == "campfire" else ROUTE_LOST_LIMIT
@@ -759,20 +766,27 @@ def navigate_step(hwnd, target_name):
         navigate_to(
             hwnd,
             target_name,
-            deadline=time.monotonic() + ROUTE_STEP_TIMEOUT,
+            move_timeout=ROUTE_STEP_TIMEOUT,
             target_lost_limit=lost_limit,
+            prefer_left=prefer_left,
         )
     )
 
 
-def navigate_with_backtrack(hwnd, target_name, previous_name, backtrack=None):
+def navigate_with_backtrack(
+    hwnd,
+    target_name,
+    previous_name,
+    backtrack=None,
+    prefer_left=False,
+):
     """找不到目標或移動超時就退回上一個地標重新定位，再回頭找目標。
 
     退回途中若同樣失敗，不再繼續往回退，直接結束這次退回並重新尋找目標。
     """
     label = TARGET_LABELS[target_name]
     while True:
-        if navigate_step(hwnd, target_name):
+        if navigate_step(hwnd, target_name, prefer_left=prefer_left):
             return True
         if previous_name is None:
             log_step("↺", f"找不到{label}或移動超時，原地重新尋找")
@@ -783,7 +797,7 @@ def navigate_with_backtrack(hwnd, target_name, previous_name, backtrack=None):
             f"退回{TARGET_LABELS[previous_name]}重新定位",
         )
         if backtrack is None:
-            navigate_step(hwnd, previous_name)
+            navigate_step(hwnd, previous_name, prefer_left=prefer_left)
         else:
             backtrack(hwnd)
 
@@ -793,21 +807,25 @@ def backtrack_to_door(hwnd):
 
     退回失敗就往左側移一次再試最後一次，仍失敗則結束退回回去找火堆。
     """
-    if navigate_step(hwnd, "door"):
+    if navigate_step(hwnd, "door", prefer_left=True):
         return
     log_step(
         "◀",
         f"退回門口失敗，往左移動 {CAMPFIRE_BACK_AWAY_SECONDS:.2f} 秒 (A)",
     )
     hold_key_for("a", CAMPFIRE_BACK_AWAY_SECONDS)
-    if not navigate_step(hwnd, "door"):
+    if not navigate_step(hwnd, "door", prefer_left=True):
         log("    左移後仍找不到門口，結束退回並重新尋找火堆")
 
 
 def navigate_to_campfire(hwnd):
     """火堆圖示可能被其他圖示疊住而找不到；退回門口換個位置再重找。"""
     return navigate_with_backtrack(
-        hwnd, "campfire", "door", backtrack=backtrack_to_door
+        hwnd,
+        "campfire",
+        "door",
+        backtrack=backtrack_to_door,
+        prefer_left=True,
     )
 
 
@@ -910,7 +928,7 @@ def run_loop(hwnd):
         log(f"\n===== 第 {_round + 1} 輪開始 =====")
         navigate_to_campfire(hwnd)
         rest_and_refresh(hwnd)
-        navigate_with_backtrack(hwnd, "door", "campfire")
+        navigate_with_backtrack(hwnd, "door", "campfire", prefer_left=True)
         navigate_with_backtrack(hwnd, "boss", "door")
         last_route = run_dodge_loop(hwnd)
         navigate_with_backtrack(hwnd, "boss", last_route)

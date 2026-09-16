@@ -2,7 +2,6 @@ import importlib.util
 import math
 import os
 import sys
-import time
 import unittest
 from unittest import mock
 
@@ -607,12 +606,19 @@ class NavigationTests(unittest.TestCase):
         w_events = [event for event in events if event[1] == "w"]
         self.assertEqual(w_events, [("down", "w"), ("up", "w")])
 
-    def test_large_right_hand_error_turns_left_instead(self):
+    def test_large_right_hand_error_turns_left_when_asked_to(self):
+        mouse_event = mock.Mock()
+        with mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event):
+            NIGHTS.steer_toward((0.0, 0.0, 0.0), (0.0, 100.0), prefer_left=True)
+
+        self.assertLess(mouse_event.call_args.args[1], 0)
+
+    def test_large_right_hand_error_turns_right_by_default(self):
         mouse_event = mock.Mock()
         with mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event):
             NIGHTS.steer_toward((0.0, 0.0, 0.0), (0.0, 100.0))
 
-        self.assertLess(mouse_event.call_args.args[1], 0)
+        self.assertGreater(mouse_event.call_args.args[1], 0)
 
     def test_small_right_hand_error_still_turns_right(self):
         mouse_event = mock.Mock()
@@ -690,11 +696,8 @@ class NavigationTests(unittest.TestCase):
 
         kwargs = navigate.call_args.kwargs
         self.assertEqual(kwargs["target_lost_limit"], NIGHTS.ROUTE_LOST_LIMIT)
-        self.assertAlmostEqual(
-            kwargs["deadline"] - time.monotonic(),
-            NIGHTS.ROUTE_STEP_TIMEOUT,
-            delta=1.0,
-        )
+        self.assertEqual(kwargs["move_timeout"], NIGHTS.ROUTE_STEP_TIMEOUT)
+        self.assertNotIn("deadline", kwargs)
 
     def test_campfire_step_keeps_its_own_lost_limit(self):
         navigate = mock.Mock(return_value=True)
@@ -709,7 +712,7 @@ class NavigationTests(unittest.TestCase):
     def test_failed_step_backtracks_to_the_previous_marker(self):
         calls = []
 
-        def fake_step(_hwnd, target_name):
+        def fake_step(_hwnd, target_name, **_kwargs):
             calls.append(target_name)
             return not (target_name == "boss" and calls.count("boss") == 1)
 
@@ -721,7 +724,7 @@ class NavigationTests(unittest.TestCase):
     def test_failed_backtrack_does_not_step_back_any_further(self):
         calls = []
 
-        def fake_step(_hwnd, target_name):
+        def fake_step(_hwnd, target_name, **_kwargs):
             # The door and the boss both fail once; backtracking must not
             # cascade further back, it just retries the door.
             calls.append(target_name)
@@ -736,11 +739,11 @@ class NavigationTests(unittest.TestCase):
         calls = []
         keys = []
 
-        def fake_step(_hwnd, target_name):
-            calls.append(target_name)
+        def fake_step(_hwnd, target_name, **kwargs):
+            calls.append((target_name, kwargs.get("prefer_left", False)))
             if target_name == "door":
                 return False
-            return calls.count("campfire") >= 2
+            return [name for name, _ in calls].count("campfire") >= 2
 
         with (
             mock.patch.object(NIGHTS, "navigate_step", side_effect=fake_step),
@@ -752,8 +755,42 @@ class NavigationTests(unittest.TestCase):
         ):
             NIGHTS.navigate_to_campfire(1)
 
-        self.assertEqual(calls, ["campfire", "door", "door", "campfire"])
+        self.assertEqual(
+            calls,
+            [
+                ("campfire", True),
+                ("door", True),
+                ("door", True),
+                ("campfire", True),
+            ],
+        )
         self.assertEqual(keys, [("a", NIGHTS.CAMPFIRE_BACK_AWAY_SECONDS)])
+
+    def test_move_timeout_starts_only_after_the_first_turn(self):
+        observations = iter(
+            [
+                ((0.0, 0.0, 0.0), (50.0, 50.0), 1.0),
+                ((0.0, 0.0, 0.0), (50.0, 50.0), 1.0),
+                ((0.0, 0.0, 0.0), (50.0, 50.0), 1.0),
+                ((0.0, 0.0, 0.0), (50.0, 0.0), 1.0),
+                ((0.0, 0.0, 0.0), (50.0, 0.0), 1.0),
+            ]
+        )
+        observe = mock.Mock(side_effect=observations)
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
+            mock.patch.object(NIGHTS, "hold_key_for"),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            result = NIGHTS.navigate_to(1, "door", move_timeout=0.0)
+
+        # The three turning frames must not burn the movement budget; the
+        # deadline only starts on the first aligned frame.
+        self.assertFalse(result)
+        self.assertEqual(observe.call_count, 4)
 
     def test_dodge_loop_reports_the_last_reached_route_marker(self):
         with (
