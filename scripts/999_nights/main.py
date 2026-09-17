@@ -78,6 +78,9 @@ TARGET_LOST_LIMIT = 8
 CAMPFIRE_LOST_LIMIT = 25
 ROUTE_LOST_LIMIT = 5
 ROUTE_STEP_TIMEOUT = 10.0
+POSE_LOST_NUDGE_INTERVAL = 8
+POSE_LOST_LIMIT = 40
+POSE_NUDGE_PIXELS = 60
 MOVE_ALIGNMENT_TOLERANCE = math.radians(3)
 DODGE_ALIGNMENT_TOLERANCE = math.radians(6)
 TURN_DEAD_ZONE = MOVE_ALIGNMENT_TOLERANCE
@@ -566,6 +569,8 @@ def navigate_to(
     last_pose = None
     target_lost_since = None
     lost_count = 0
+    pose_lost_count = 0
+    pose_nudge_pixels = -POSE_NUDGE_PIXELS
     last_status = 0.0
     walking = False
     dodge_just_performed = False
@@ -602,10 +607,27 @@ def navigate_to(
                 return True
             pose, target, confidence = observe_target(hwnd, target_name)
             if pose is None:
+                # 箭頭偶爾會和地圖上的圖示疊在一起而辨識不到，
+                # 此時畫面完全不會動，必須自己撥一下鏡頭換個角度重試。
                 release_w()
                 target_lost_since = None
+                pose_lost_count += 1
+                if pose_lost_count % POSE_LOST_NUDGE_INTERVAL == 0:
+                    if pose_lost_count == POSE_LOST_NUDGE_INTERVAL:
+                        log("    …找不到角色箭頭，撥動鏡頭嘗試恢復辨識")
+                    win32api.mouse_event(
+                        MOUSEEVENTF_MOVE, pose_nudge_pixels, 0, 0, 0
+                    )
+                    pose_nudge_pixels = -pose_nudge_pixels
+                if pose_lost_count >= POSE_LOST_LIMIT:
+                    log(
+                        f"    連續 {pose_lost_count} 次找不到角色箭頭，"
+                        f"放棄本次{mode}"
+                    )
+                    return False
                 sleep_check(POLL_INTERVAL)
                 continue
+            pose_lost_count = 0
             if target is None:
                 lost_count += 1
                 if (

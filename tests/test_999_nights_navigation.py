@@ -792,6 +792,67 @@ class NavigationTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertEqual(observe.call_count, 4)
 
+    def test_missing_player_arrow_nudges_the_camera(self):
+        frames = [(None, None, 0.0)] * NIGHTS.POSE_LOST_NUDGE_INTERVAL
+        frames.append(((0.0, 0.0, 0.0), (10.0, 0.0), 1.0))
+        observe = mock.Mock(side_effect=iter(frames))
+        mouse_event = mock.Mock()
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "door")
+
+        self.assertTrue(reached)
+        self.assertEqual(mouse_event.call_count, 1)
+        self.assertEqual(
+            abs(mouse_event.call_args.args[1]), NIGHTS.POSE_NUDGE_PIXELS
+        )
+
+    def test_missing_player_arrow_gives_up_after_the_lost_limit(self):
+        observe = mock.Mock(return_value=(None, None, 0.0))
+        mouse_event = mock.Mock()
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS.win32api, "mouse_event", mouse_event),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "door")
+
+        self.assertFalse(reached)
+        self.assertEqual(observe.call_count, NIGHTS.POSE_LOST_LIMIT)
+        nudges = [call.args[1] for call in mouse_event.call_args_list]
+        self.assertEqual(
+            len(nudges), NIGHTS.POSE_LOST_LIMIT // NIGHTS.POSE_LOST_NUDGE_INTERVAL
+        )
+        # The nudges alternate so the camera does not drift in one direction.
+        self.assertEqual(nudges[0], -nudges[1])
+
+    def test_recovered_player_arrow_resets_the_lost_counter(self):
+        frames = []
+        for _ in range(3):
+            frames.extend([(None, None, 0.0)] * (NIGHTS.POSE_LOST_LIMIT - 1))
+            frames.append(((0.0, 0.0, 0.0), (50.0, 0.0), 1.0))
+        frames.append(((0.0, 0.0, 0.0), (10.0, 0.0), 1.0))
+        observe = mock.Mock(side_effect=iter(frames))
+        keyboard = mock.Mock()
+        with (
+            mock.patch.object(NIGHTS, "observe_target", observe),
+            mock.patch.object(NIGHTS.win32api, "mouse_event"),
+            mock.patch.object(NIGHTS, "steer_toward", return_value=0.0),
+            mock.patch.object(NIGHTS, "sleep_check"),
+            mock.patch.object(NIGHTS, "keyboard", keyboard),
+        ):
+            reached = NIGHTS.navigate_to(1, "door")
+
+        self.assertTrue(reached)
+        self.assertEqual(observe.call_count, len(frames))
+
     def test_dodge_loop_reports_the_last_reached_route_marker(self):
         with (
             mock.patch.object(NIGHTS, "navigate_to", return_value=True),
